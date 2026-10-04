@@ -286,13 +286,14 @@ Public NotInheritable Class StocktakingWriter
         line(L_PRICE - 1) = CDbl(r.UnitPrice)
     End Sub
 
-    ''' <summary>棚番を記入欄へ（6件目以降は備考に件数を出す）</summary>
-    Private Sub SetListShelves(line As Object(), shelves As List(Of String))
-        For i As Integer = 0 To Math.Min(shelves.Count, SLOTS) - 1
-            line(L_SHELF - 1 + i * 2) = shelves(i)
+    ''' <summary>棚番を位置どおりの記入欄へ（表示数より後ろの位置にある棚番は備考に件数を出す）</summary>
+    Private Sub SetListShelves(line As Object(), shelves As IDictionary(Of Integer, String))
+        For Each kv In shelves.Where(Function(x) x.Key <= SLOTS)
+            line(L_SHELF - 1 + (kv.Key - 1) * 2) = kv.Value
         Next
-        If shelves.Count > SLOTS Then
-            line(L_NOTE - 1) = $"棚番{shelves.Count}件（{SLOTS + 1}件目以降は省略）"
+        Dim hidden = shelves.Keys.Where(Function(p) p > SLOTS).Count()
+        If hidden > 0 Then
+            line(L_NOTE - 1) = $"棚番{SLOTS + 1}以降に{hidden}件（表示省略）"
         End If
     End Sub
 
@@ -384,7 +385,7 @@ Public NotInheritable Class StocktakingWriter
         Dim childSpans As New List(Of RowSpan)
 
         Dim newLine = Function(no As Object, wh As String, cust As String, sup As String, name As String,
-                               reg As Object, stock As Decimal, shelves As List(Of String)) As Object()
+                               reg As Object, stock As Decimal, shelves As IDictionary(Of Integer, String)) As Object()
                           Dim line(pCols - 1) As Object
                           line(P_NO - 1) = no
                           line(P_WH - 1) = wh
@@ -393,8 +394,8 @@ Public NotInheritable Class StocktakingWriter
                           line(P_NAME - 1) = name
                           line(P_REG - 1) = reg
                           If pStock > 0 Then line(pStock - 1) = CDbl(stock)
-                          For i As Integer = 0 To Math.Min(shelves.Count, SLOTS) - 1
-                              line(pShelf - 1 + i * 2) = shelves(i)
+                          For Each kv In shelves.Where(Function(x) x.Key <= SLOTS)
+                              line(pShelf - 1 + (kv.Key - 1) * 2) = kv.Value
                           Next
                           Return line
                       End Function

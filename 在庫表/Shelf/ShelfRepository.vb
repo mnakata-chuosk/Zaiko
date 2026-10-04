@@ -22,7 +22,7 @@ Public NotInheritable Class ShelfRepository
     End Enum
 
     Private Const SHELF_SQL As String = "
-SELECT b.商品CD, b.商品棚番明細番号, ISNULL(b.得意先CD, '') AS 得意先CD, ISNULL(b.棚番, '') AS 棚番, b.SysStartTime,
+SELECT b.商品CD, b.商品棚番明細番号, ISNULL(b.得意先CD, '') AS 得意先CD, ISNULL(b.棚番, '') AS 棚番, b.帳票出力優先順, b.SysStartTime,
        ISNULL(m.型式, '') AS 型式, ISNULL(t.短縮CD, '') AS 短縮CD, ISNULL(t.略称, ISNULL(t.取引先名, '')) AS 得意先名
 FROM AXIS.dbo.m商品棚番明細 b
 LEFT JOIN AXIS.dbo.m商品管理 m ON m.商品CD = b.商品CD
@@ -69,10 +69,18 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
 
         For Each row As DataRow In Query(SHELF_SQL, prm).Rows
             Dim g = GetOrAdd(groups, Str(row("商品CD")), Str(row("得意先CD")), Str(row("型式")), Str(row("短縮CD")), Str(row("得意先名")))
-            g.Records.Add(New ShelfRecord With {.DetailNo = CInt(row("商品棚番明細番号")), .ShelfNo = Str(row("棚番"))})
+            g.Records.Add(New ShelfRecord With {
+                .DetailNo = CInt(row("商品棚番明細番号")),
+                .ShelfNo = Str(row("棚番")),
+                .Priority = If(TypeOf row("帳票出力優先順") Is DBNull, CType(Nothing, Decimal?), Convert.ToDecimal(row("帳票出力優先順")))
+            })
             g.LoadedCount += 1
             Dim stamp = CDate(row("SysStartTime"))
             If Not g.LoadedStamp.HasValue OrElse stamp > g.LoadedStamp.Value Then g.LoadedStamp = stamp
+        Next
+
+        For Each g In groups.Values
+            g.AssignPositions()
         Next
 
         For Each row As DataRow In Query(STOCK_SQL, prm).Rows
@@ -127,8 +135,9 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
     End Function
 
     ''' <summary>
-    ''' 1グループ分の棚番を保存する（PendingShelves の内容に置き換える）。
-    ''' 既存の明細は並び順に棚番・帳票出力優先順を書き換え、不足分は追加（明細番号は商品CD内の最大＋1）、余りは削除する。
+    ''' 1グループ分の棚番を保存する（PendingMap の内容に置き換える）。
+    ''' 位置ごとに、既存明細があれば棚番・帳票出力優先順（=位置）を書き換え、無ければ追加（明細番号は商品CD内の最大＋1）、
+    ''' 棚番が無くなった位置の明細は削除する。
     ''' </summary>
     Public Shared Function Save(officeCode As String, userId As String, group As ShelfGroup) As SaveOutcome
         Dim cmd = BuildSaveCommand(officeCode, userId, group)
@@ -138,7 +147,7 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
 
     ''' <summary>保存用の SQL バッチとパラメータを組み立てる（結果セット「結果」: 0=保存、1=競合）</summary>
     Public Shared Function BuildSaveCommand(officeCode As String, userId As String, group As ShelfGroup) As (Sql As String, Params As Dictionary(Of String, Object))
-        Dim newShelves = group.PendingShelves
+        Dim newMap = group.PendingMap
         Dim sql As New StringBuilder()
         Dim prm As New Dictionary(Of String, Object) From {
             {"@OFFICE", officeCode},
@@ -158,31 +167,36 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
         sql.AppendLine("IF @cnt <> @EXP_CNT OR ISNULL(@stamp, '19000101') <> ISNULL(@EXP_STAMP, '19000101')")
         sql.AppendLine("BEGIN ROLLBACK; SELECT 1 AS 結果; RETURN; END")
 
-        For i As Integer = 0 To Math.Max(newShelves.Count, group.Records.Count) - 1
-            If i < newShelves.Count Then
-                prm.Add($"@S{i}", newShelves(i))
-                prm.Add($"@P{i}", CDec(i + 1))
+        Dim byPosition = group.Records.ToDictionary(Function(r) r.Position)
+        Dim positions = byPosition.Keys.Union(newMap.Keys).OrderBy(Function(p) p).ToList()
+        For Each pos In positions
+            Dim rec As ShelfRecord = Nothing
+            byPosition.TryGetValue(pos, rec)
+            Dim shelf As String = Nothing
+            newMap.TryGetValue(pos, shelf)
+
+            If shelf IsNot Nothing Then
+                prm.Add($"@S{pos}", shelf)
+                prm.Add($"@P{pos}", CDec(pos))
             End If
+            If rec IsNot Nothing Then prm.Add($"@D{pos}", rec.DetailNo)
 
-            If i < newShelves.Count AndAlso i < group.Records.Count Then
+            If rec IsNot Nothing AndAlso shelf IsNot Nothing Then
                 ' 既存明細の書き換え（変化がある行のみ）
-                prm.Add($"@D{i}", group.Records(i).DetailNo)
-                sql.AppendLine($"UPDATE AXIS.dbo.m商品棚番明細 SET 棚番 = @S{i}, 帳票出力優先順 = @P{i}, 更新担当者区分 = @USER, 更新日時 = GETDATE()")
-                sql.AppendLine($"  WHERE 商品CD = @ITEM AND 商品棚番明細番号 = @D{i} AND (ISNULL(棚番, '') <> @S{i} OR ISNULL(帳票出力優先順, -1) <> @P{i});")
+                sql.AppendLine($"UPDATE AXIS.dbo.m商品棚番明細 SET 棚番 = @S{pos}, 帳票出力優先順 = @P{pos}, 更新担当者区分 = @USER, 更新日時 = GETDATE()")
+                sql.AppendLine($"  WHERE 商品CD = @ITEM AND 商品棚番明細番号 = @D{pos} AND (ISNULL(棚番, '') <> @S{pos} OR ISNULL(帳票出力優先順, -1) <> @P{pos});")
 
-            ElseIf i < newShelves.Count Then
+            ElseIf shelf IsNot Nothing Then
                 ' 追加
                 sql.AppendLine("INSERT INTO AXIS.dbo.m商品棚番明細 (商品CD, 商品棚番明細番号, 営業所区分, 得意先CD, 棚番, 帳票出力優先順, 登録担当者区分, 登録日時, 更新担当者区分, 更新日時)")
-                sql.AppendLine($"  SELECT @ITEM, ISNULL(MAX(商品棚番明細番号), 0) + 1, @OFFICE, @CUSTNULL, @S{i}, @P{i}, @USER, GETDATE(), @USER, GETDATE()")
+                sql.AppendLine($"  SELECT @ITEM, ISNULL(MAX(商品棚番明細番号), 0) + 1, @OFFICE, @CUSTNULL, @S{pos}, @P{pos}, @USER, GETDATE(), @USER, GETDATE()")
                 sql.AppendLine("  FROM AXIS.dbo.m商品棚番明細 WITH (UPDLOCK, HOLDLOCK) WHERE 商品CD = @ITEM;")
 
             Else
-                ' 削除
-                prm.Add($"@D{i}", group.Records(i).DetailNo)
-                sql.AppendLine($"DELETE FROM AXIS.dbo.m商品棚番明細 WHERE 商品CD = @ITEM AND 商品棚番明細番号 = @D{i};")
+                ' 削除（この位置の棚番が無くなった）
+                sql.AppendLine($"DELETE FROM AXIS.dbo.m商品棚番明細 WHERE 商品CD = @ITEM AND 商品棚番明細番号 = @D{pos};")
             End If
         Next
-
         sql.AppendLine("COMMIT;")
         sql.AppendLine("SELECT 0 AS 結果;")
 

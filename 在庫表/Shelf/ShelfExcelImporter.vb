@@ -1,4 +1,4 @@
-Option Strict Off  ' Excel COM の遅延バインディングに必要
+﻿Option Strict Off  ' Excel COM の遅延バインディングに必要
 
 Imports System.IO
 Imports ChuoUtils
@@ -25,8 +25,14 @@ Public Class ShelfImportRow
     ''' <summary>得意先CD（非表示列。古いファイルや追記行は空）</summary>
     Public Property CustomerCode As String = ""
     Public Property CustomerShortCode As String = ""
-    ''' <summary>棚番（空欄を除いて左から順）</summary>
+    ''' <summary>棚番（棚番1 から順。空欄は空文字のまま＝位置を保つ）</summary>
     Public ReadOnly Property Shelves As New List(Of String)
+
+    Public ReadOnly Property HasShelf As Boolean
+        Get
+            Return Shelves.Any(Function(s) s <> "")
+        End Get
+    End Property
 End Class
 
 ''' <summary>
@@ -113,15 +119,14 @@ Public NotInheritable Class ShelfExcelImporter
                 .CustomerShortCode = cell(r, ListHeaders.CUSTOMER)
             }
             For Each c In shelfCols
-                Dim s As String = Text(values(r, c))
-                If s <> "" Then row.Shelves.Add(s)
+                row.Shelves.Add(Text(values(r, c)))
             Next
 
             Dim registered As Integer = 0
             Integer.TryParse(cell(r, ListHeaders.REGISTERED), registered)
 
             If noText = ListHeaders.APPEND_NO Then
-                If row.Model = "" AndAlso row.Shelves.Count = 0 Then Continue For
+                If row.Model = "" AndAlso Not row.HasShelf Then Continue For
                 row.Kind = ShelfImportRow.RowKind.Append
             ElseIf row.ItemCode = "" Then
                 Continue For

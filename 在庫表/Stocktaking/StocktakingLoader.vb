@@ -1,4 +1,4 @@
-Imports ChuoUtils
+﻿Imports ChuoUtils
 
 ''' <summary>
 ''' 棚卸表用データを AXIS から取得する
@@ -62,12 +62,12 @@ LEFT JOIN 補完単価 p
 
 DROP TABLE #在庫;"
 
-    ''' <summary>棚番の取得（帳票出力優先順 → 明細番号の順）</summary>
+    ''' <summary>棚番の取得（帳票出力優先順 → 明細番号の順。空の棚番は除く）</summary>
     Private Const SHELF_SQL As String = "
-SELECT 商品CD, ISNULL(得意先CD, '') AS 得意先CD, 棚番
+SELECT 商品CD, ISNULL(得意先CD, '') AS 得意先CD, 棚番, 帳票出力優先順
 FROM AXIS.dbo.m商品棚番明細
 WHERE 営業所区分 = @OFFICE AND ISNULL(棚番, '') <> ''
-ORDER BY 商品CD, ISNULL(帳票出力優先順, 999999), 商品棚番明細番号"
+ORDER BY 商品CD, ISNULL(得意先CD, ''), ISNULL(帳票出力優先順, 999999), 商品棚番明細番号"
 
     ''' <summary>営業所の在庫を取得する</summary>
     Public Shared Function LoadStock(officeCode As String) As List(Of StockRow)
@@ -101,7 +101,8 @@ ORDER BY 商品CD, ISNULL(帳票出力優先順, 999999), 商品棚番明細番�
             result.Add(New ShelfRow With {
                 .ItemCode = Str(row("商品CD")),
                 .CustomerCode = Str(row("得意先CD")),
-                .ShelfNo = Str(row("棚番"))
+                .ShelfNo = Str(row("棚番")),
+                .Priority = If(TypeOf row("帳票出力優先順") Is DBNull, CType(Nothing, Decimal?), Convert.ToDecimal(row("帳票出力優先順")))
             })
         Next
 

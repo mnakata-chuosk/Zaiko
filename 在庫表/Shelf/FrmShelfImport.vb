@@ -19,8 +19,8 @@ Public Class FrmShelfImport
                 String.Join(",", c.ExcelRows),
                 c.Group.Model,
                 If(c.Group.IsShared, "（共用棚）", $"{c.Group.CustomerShortCode} {c.Group.CustomerName}".Trim()),
-                Join(c.Before),
-                Join(c.After),
+                ShelfPositions.Describe(c.Before),
+                ShelfPositions.Describe(c.After),
                 String.Join(" / ", c.Warnings) & If(c.IsNewGroup, If(c.Warnings.Count > 0, " / ", "") & "新しい行", ""))
             Dgv.Rows(i).Tag = c
             If c.Warnings.Count > 0 Then Dgv.Rows(i).DefaultCellStyle.BackColor = COLOR_WARNING
@@ -52,10 +52,6 @@ Public Class FrmShelfImport
         Dgv.Columns("変更前").DefaultCellStyle.ForeColor = Color.DimGray
         Dgv.Columns("確認事項").DefaultCellStyle.ForeColor = Color.DarkRed
     End Sub
-
-    Private Shared Function Join(shelves As List(Of String)) As String
-        Return If(shelves.Count = 0, "（なし）", String.Join(" / ", shelves))
-    End Function
 
     Private Sub SetAll(value As Boolean)
         Dgv.EndEdit()

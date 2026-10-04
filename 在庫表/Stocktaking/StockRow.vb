@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 在庫1行（営業所内の 倉庫 × 得意先 × 商品CD × ステータス 単位）
 ''' </summary>
 Public Class StockRow
@@ -36,4 +36,6 @@ Public Class ShelfRow
     ''' <summary>得意先CD。空文字は得意先指定なし（共用棚）</summary>
     Public Property CustomerCode As String
     Public Property ShelfNo As String
+    ''' <summary>帳票出力優先順（DB の値）</summary>
+    Public Property Priority As Decimal?
 End Class

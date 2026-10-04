@@ -1,4 +1,4 @@
-Imports System.Text.RegularExpressions
+﻿Imports System.Text.RegularExpressions
 
 ''' <summary>
 ''' Excel 読み込みで変わる1グループ分の棚番
@@ -7,8 +7,9 @@ Public Class ShelfImportChange
     Public Property Group As ShelfGroup
     ''' <summary>編集画面にまだ無いグループ（新しく行を追加する）</summary>
     Public Property IsNewGroup As Boolean
-    Public Property Before As List(Of String)
-    Public Property After As List(Of String)
+    ''' <summary>位置 → 棚番</summary>
+    Public Property Before As SortedDictionary(Of Integer, String)
+    Public Property After As SortedDictionary(Of Integer, String)
     ''' <summary>確認を促す内容（メモらしき棚番など）</summary>
     Public Property Warnings As New List(Of String)
     Public Property ExcelRows As New SortedSet(Of Integer)
@@ -16,20 +17,21 @@ End Class
 
 ''' <summary>
 ''' 棚卸表から読み取った棚番を、編集画面の現在の内容と突き合わせて変更点を求める。
-''' 内容が同じグループは結果に含めない。
+''' 内容が同じグループは結果に含めない。棚番は位置（棚番1～）で扱い、空欄は「その位置に棚番なし」。
 ''' </summary>
 ''' <remarks>
-''' ・親行 … 共用棚。ファイル上の棚番列数より後ろの登録済み棚番はそのまま残す
-''' ・子行 … その得意先の指定棚
-''' ・単独行 … 共用棚と得意先指定棚が混在して出力されているため、
-'''            元々その得意先の指定棚だった棚番は指定棚に、それ以外（新しく書かれた棚番を含む）は共用棚に振り分ける
-''' ・追記行 … 型式（完全一致）と得意先短縮CD（その型式の取扱得意先）から特定し、棚番を追加する
+''' ・親行 … 共用棚。ファイルの棚番列（位置 1～列数）をそのまま反映。列数より後ろの位置は変更しない
+''' ・子行 … その得意先の指定棚。親行と同じ
+''' ・単独行 … 共用棚と得意先指定棚を合成して出力しているため（ShelfPositions.MergeSingle）、
+'''            出力時と同じ合成をやり直し、変わったセルは元のグループ・元の位置に反映する。
+'''            出力時に空いていたセルへの記入は共用棚のその位置に入れる
+''' ・追記行 … 型式（完全一致）と得意先短縮CDから特定し、空いている位置に棚番を追加する
 ''' </remarks>
 Public Class ShelfImportPlanner
 
     Private ReadOnly _officeCode As String
     Private ReadOnly _groups As Dictionary(Of String, ShelfGroup)
-    Private ReadOnly _work As New Dictionary(Of String, List(Of String))
+    Private ReadOnly _work As New Dictionary(Of String, SortedDictionary(Of Integer, String))
     Private ReadOnly _newGroups As New Dictionary(Of String, ShelfGroup)
     Private ReadOnly _rowsByKey As New Dictionary(Of String, SortedSet(Of Integer))
     Private ReadOnly _customerCache As New Dictionary(Of String, List(Of ShelfRepository.Customer))
@@ -48,18 +50,17 @@ Public Class ShelfImportPlanner
             Try
                 Select Case row.Kind
                     Case ShelfImportRow.RowKind.Parent
-                        Replace(GetGroup(row.ItemCode, "", row), row.Shelves, file.Slots, row.ExcelRow)
+                        Overwrite(GetGroup(row.ItemCode, "", row), row)
 
                     Case ShelfImportRow.RowKind.Child
                         Dim cust = ResolveCustomer(row.ItemCode, row)
                         If cust Is Nothing Then Continue For
-                        Dim key = ShelfGroup.MakeKey(row.ItemCode, cust.Code)
                         ' 指定棚が無く、ファイルにも書かれていない子行は何もしない
-                        If row.Shelves.Count = 0 AndAlso Not Exists(key) Then Continue For
-                        Replace(GetGroup(row.ItemCode, cust.Code, row, cust), row.Shelves, file.Slots, row.ExcelRow)
+                        If Not row.HasShelf AndAlso Not Exists(ShelfGroup.MakeKey(row.ItemCode, cust.Code)) Then Continue For
+                        Overwrite(GetGroup(row.ItemCode, cust.Code, row, cust), row)
 
                     Case ShelfImportRow.RowKind.SingleRow
-                        PlanSingle(row, file.Slots)
+                        PlanSingle(row)
 
                     Case ShelfImportRow.RowKind.Append
                         PlanAppend(row)
@@ -75,8 +76,8 @@ Public Class ShelfImportPlanner
             Dim isNew = Not _groups.TryGetValue(kv.Key, g)
             If isNew Then g = _newGroups(kv.Key)
 
-            Dim before = g.CurrentShelves
-            If kv.Value.SequenceEqual(before) Then Continue For
+            Dim before = g.CurrentMap
+            If ShelfPositions.SameMap(kv.Value, before) Then Continue For
 
             Dim change As New ShelfImportChange With {
                 .Group = g, .IsNewGroup = isNew, .Before = before, .After = kv.Value
@@ -84,11 +85,11 @@ Public Class ShelfImportPlanner
             For Each r In _rowsByKey(kv.Key)
                 change.ExcelRows.Add(r)
             Next
-            For Each s In kv.Value.Where(Function(x) Not before.Contains(x) AndAlso LooksLikeMemo(x)).Distinct()
+            For Each s In kv.Value.Values.Where(Function(x) Not before.ContainsValue(x) AndAlso LooksLikeMemo(x)).Distinct()
                 change.Warnings.Add($"「{s}」は棚番ではなくメモの可能性")
             Next
-            If kv.Value.Count > ShelfGroup.EDIT_SLOTS Then
-                change.Warnings.Add($"棚番が{kv.Value.Count}件（画面には{ShelfGroup.EDIT_SLOTS}件まで表示）")
+            If kv.Value.Keys.Any(Function(p) p > ShelfGroup.EDIT_SLOTS) AndAlso Not before.Keys.Any(Function(p) p > ShelfGroup.EDIT_SLOTS) Then
+                change.Warnings.Add($"棚番{ShelfGroup.EDIT_SLOTS + 1}以降に入る棚番あり（画面には{ShelfGroup.EDIT_SLOTS}まで表示）")
             End If
             result.Add(change)
         Next
@@ -96,35 +97,62 @@ Public Class ShelfImportPlanner
         Return result.OrderBy(Function(c) c.ExcelRows.Min).ToList()
     End Function
 
-    ''' <summary>単独行：元の指定棚は指定棚に、それ以外は共用棚に振り分ける</summary>
-    Private Sub PlanSingle(row As ShelfImportRow, slots As Integer)
-        Dim sharedKey = ShelfGroup.MakeKey(row.ItemCode, "")
-        Dim cust = If(row.CustomerShortCode = "" AndAlso row.CustomerCode = "", Nothing, ResolveCustomer(row.ItemCode, row, quiet:=True))
-        Dim custKey = If(cust Is Nothing, Nothing, ShelfGroup.MakeKey(row.ItemCode, cust.Code))
-
-        Dim sharedNow = Current(sharedKey)
-        Dim custNow = If(custKey IsNot Nothing AndAlso Exists(custKey), Current(custKey), New List(Of String))
-
-        ' 出力時と同じ並び（共用棚 → 共用棚に無い指定棚）
-        Dim combined = sharedNow.Concat(custNow.Where(Function(s) Not sharedNow.Contains(s))).ToList()
-        Dim proposed = row.Shelves.Concat(combined.Skip(slots)).Distinct().ToList()
-
-        Dim custNew = proposed.Where(Function(s) custNow.Contains(s) AndAlso Not sharedNow.Contains(s)).ToList()
-        Dim sharedNew = proposed.Where(Function(s) Not custNew.Contains(s)).ToList()
-
-        SetWork(GetGroup(row.ItemCode, "", row), sharedNew, row.ExcelRow)
-        If custKey IsNot Nothing AndAlso Exists(custKey) Then
-            SetWork(GetGroup(row.ItemCode, cust.Code, row, cust), custNew, row.ExcelRow)
-        End If
+    ''' <summary>ファイルの棚番列（位置 1～列数）で上書きする。空欄はその位置を削除</summary>
+    Private Sub Overwrite(g As ShelfGroup, row As ShelfImportRow)
+        Dim map As New SortedDictionary(Of Integer, String)(Current(g.Key))
+        For i As Integer = 0 To row.Shelves.Count - 1
+            Dim pos = i + 1
+            If row.Shelves(i) = "" Then
+                map.Remove(pos)
+            Else
+                map(pos) = row.Shelves(i)
+            End If
+        Next
+        SetWork(g, map, row.ExcelRow)
     End Sub
 
-    ''' <summary>追記行：型式と得意先短縮CDから特定して棚番を追加する</summary>
+    ''' <summary>単独行：出力時の合成をやり直し、変わったセルを元のグループ・元の位置へ反映する</summary>
+    Private Sub PlanSingle(row As ShelfImportRow)
+        Dim sharedGroup = GetGroup(row.ItemCode, "", row)
+        Dim sharedMap As New SortedDictionary(Of Integer, String)(Current(sharedGroup.Key))
+
+        Dim cust = If(row.CustomerShortCode = "" AndAlso row.CustomerCode = "", Nothing, ResolveCustomer(row.ItemCode, row, quiet:=True))
+        Dim custKey = If(cust Is Nothing, Nothing, ShelfGroup.MakeKey(row.ItemCode, cust.Code))
+        Dim hasCustGroup = custKey IsNot Nothing AndAlso Exists(custKey)
+        Dim custMap As New SortedDictionary(Of Integer, String)(If(hasCustGroup, Current(custKey), New SortedDictionary(Of Integer, String)))
+
+        Dim merged = ShelfPositions.MergeSingle(sharedMap, If(hasCustGroup, custMap, Nothing))
+        Dim newShared As New SortedDictionary(Of Integer, String)(sharedMap)
+        Dim newCust As New SortedDictionary(Of Integer, String)(custMap)
+
+        For i As Integer = 0 To row.Shelves.Count - 1
+            Dim pos = i + 1
+            Dim v = row.Shelves(i)
+            Dim m As ShelfPositions.MergedShelf = Nothing
+            If merged.TryGetValue(pos, m) Then
+                If v = m.Shelf Then Continue For
+                Dim target = If(m.IsCustomer, newCust, newShared)
+                If v = "" Then
+                    target.Remove(m.SourcePosition)
+                Else
+                    target(m.SourcePosition) = v
+                End If
+            ElseIf v <> "" Then
+                newShared(pos) = v
+            End If
+        Next
+
+        SetWork(sharedGroup, newShared, row.ExcelRow)
+        If hasCustGroup Then SetWork(GetGroup(row.ItemCode, cust.Code, row, cust), newCust, row.ExcelRow)
+    End Sub
+
+    ''' <summary>追記行：型式と得意先短縮CDから特定し、空いている位置に棚番を追加する</summary>
     Private Sub PlanAppend(row As ShelfImportRow)
         If row.Model = "" Then
             Errors.Add($"{row.ExcelRow}行目：追記行に品名（型式）がありません")
             Return
         End If
-        If row.Shelves.Count = 0 Then
+        If Not row.HasShelf Then
             Errors.Add($"{row.ExcelRow}行目：追記行「{row.Model}」に棚番がありません")
             Return
         End If
@@ -154,18 +182,20 @@ Public Class ShelfImportPlanner
         End If
 
         Dim g = GetGroup(itemCode, If(cust?.Code, ""), row, cust)
-        Dim list = Current(g.Key)
-        SetWork(g, list.Concat(row.Shelves.Where(Function(s) Not list.Contains(s))).ToList(), row.ExcelRow)
+        Dim map As New SortedDictionary(Of Integer, String)(Current(g.Key))
+        For Each s In row.Shelves.Where(Function(x) x <> "")
+            If map.ContainsValue(s) Then Continue For
+            Dim pos As Integer = 1
+            While map.ContainsKey(pos)
+                pos += 1
+            End While
+            map(pos) = s
+        Next
+        SetWork(g, map, row.ExcelRow)
     End Sub
 
-    ''' <summary>先頭 slots 件をファイルの内容で置き換え、それ以降の登録済み棚番は残す</summary>
-    Private Sub Replace(g As ShelfGroup, shelves As List(Of String), slots As Integer, excelRow As Integer)
-        Dim proposed = shelves.Concat(Current(g.Key).Skip(slots)).Distinct().ToList()
-        SetWork(g, proposed, excelRow)
-    End Sub
-
-    Private Sub SetWork(g As ShelfGroup, shelves As List(Of String), excelRow As Integer)
-        _work(g.Key) = shelves
+    Private Sub SetWork(g As ShelfGroup, map As SortedDictionary(Of Integer, String), excelRow As Integer)
+        _work(g.Key) = map
         If Not _rowsByKey.ContainsKey(g.Key) Then _rowsByKey(g.Key) = New SortedSet(Of Integer)
         _rowsByKey(g.Key).Add(excelRow)
     End Sub
@@ -175,12 +205,12 @@ Public Class ShelfImportPlanner
     End Function
 
     ''' <summary>このファイルの処理途中の内容（未処理なら編集画面の現在の内容）</summary>
-    Private Function Current(key As String) As List(Of String)
-        Dim list As List(Of String) = Nothing
-        If _work.TryGetValue(key, list) Then Return list
+    Private Function Current(key As String) As SortedDictionary(Of Integer, String)
+        Dim map As SortedDictionary(Of Integer, String) = Nothing
+        If _work.TryGetValue(key, map) Then Return map
         Dim g As ShelfGroup = Nothing
-        If _groups.TryGetValue(key, g) OrElse _newGroups.TryGetValue(key, g) Then Return g.CurrentShelves
-        Return New List(Of String)
+        If _groups.TryGetValue(key, g) OrElse _newGroups.TryGetValue(key, g) Then Return g.CurrentMap
+        Return New SortedDictionary(Of Integer, String)
     End Function
 
     ''' <summary>編集画面のグループ。無ければ新しいグループを用意する</summary>

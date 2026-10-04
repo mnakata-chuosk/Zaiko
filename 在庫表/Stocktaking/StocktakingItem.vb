@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 棚卸表の1型式分（営業所内の商品CD単位）。
 ''' 棚卸対象の在庫行が2行以上なら「親行＋子行」、1行なら単独行として出力する。
 ''' </summary>
@@ -13,10 +13,10 @@ Public Class StocktakingItem
     Public ReadOnly Property Targets As New List(Of StockRow)
     ''' <summary>棚卸対象外ステータスの在庫行（一覧シートのみ参考表示）</summary>
     Public ReadOnly Property Excluded As New List(Of StockRow)
-    ''' <summary>得意先指定なしの棚番（帳票出力優先順）</summary>
-    Public ReadOnly Property SharedShelves As New List(Of String)
-    ''' <summary>得意先指定ありの棚番（キー: 得意先CD）</summary>
-    Public ReadOnly Property CustomerShelves As New Dictionary(Of String, List(Of String))
+    ''' <summary>得意先指定なしの棚番（位置 → 棚番。位置は帳票出力優先順、空き位置は詰めない）</summary>
+    Public ReadOnly Property SharedShelves As New SortedDictionary(Of Integer, String)
+    ''' <summary>得意先指定ありの棚番（キー: 得意先CD、値: 位置 → 棚番）</summary>
+    Public ReadOnly Property CustomerShelves As New Dictionary(Of String, SortedDictionary(Of Integer, String))
 
     ''' <summary>親行＋子行で出力するか（棚卸対象が2行以上）</summary>
     Public ReadOnly Property IsGroup As Boolean
@@ -48,19 +48,20 @@ Public Class StocktakingItem
         Return If(values.Count = 1, values(0), "")
     End Function
 
-    ''' <summary>得意先指定の棚番（無ければ空リスト）</summary>
-    Public Function ShelvesOf(row As StockRow) As List(Of String)
-        Dim list As List(Of String) = Nothing
-        If CustomerShelves.TryGetValue(row.CustomerCode, list) Then Return list
-        Return New List(Of String)
+    ''' <summary>得意先指定の棚番（無ければ空）</summary>
+    Public Function ShelvesOf(row As StockRow) As SortedDictionary(Of Integer, String)
+        Dim map As SortedDictionary(Of Integer, String) = Nothing
+        If CustomerShelves.TryGetValue(row.CustomerCode, map) Then Return map
+        Return New SortedDictionary(Of Integer, String)
     End Function
 
-    ''' <summary>単独行で出力するときの棚番（共用棚 → 得意先指定棚の順、重複除外）</summary>
-    Public Function SingleRowShelves() As List(Of String)
-        Dim result As New List(Of String)(SharedShelves)
-        If Targets.Count = 1 Then
-            result.AddRange(ShelvesOf(Targets(0)).Where(Function(s) Not result.Contains(s)))
-        End If
+    ''' <summary>単独行で出力するときの棚番（共用棚と得意先指定棚を ShelfPositions.MergeSingle で合成）</summary>
+    Public Function SingleRowShelves() As SortedDictionary(Of Integer, String)
+        Dim custMap = If(Targets.Count = 1 AndAlso CustomerShelves.ContainsKey(Targets(0).CustomerCode), CustomerShelves(Targets(0).CustomerCode), Nothing)
+        Dim result As New SortedDictionary(Of Integer, String)
+        For Each kv In ShelfPositions.MergeSingle(SharedShelves, custMap)
+            result(kv.Key) = kv.Value.Shelf
+        Next
         Return result
     End Function
 
@@ -95,17 +96,15 @@ Public Module StocktakingBuilder
                 End If
             Next
 
-            For Each s In shelfLookup(grp.Key)
-                If s.CustomerCode = "" Then
-                    If Not item.SharedShelves.Contains(s.ShelfNo) Then item.SharedShelves.Add(s.ShelfNo)
-                Else
-                    If Not item.CustomerShelves.ContainsKey(s.CustomerCode) Then
-                        item.CustomerShelves(s.CustomerCode) = New List(Of String)
-                    End If
-                    If Not item.CustomerShelves(s.CustomerCode).Contains(s.ShelfNo) Then
-                        item.CustomerShelves(s.CustomerCode).Add(s.ShelfNo)
-                    End If
-                End If
+            ' 得意先指定ごとに帳票出力優先順から位置を決める（棚番編集画面と同じ規則）
+            For Each byCustomer In shelfLookup(grp.Key).GroupBy(Function(s) s.CustomerCode)
+                Dim list = byCustomer.ToList()
+                Dim positions = ShelfPositions.Assign(list.Select(Function(s) s.Priority).ToList())
+                Dim map = If(byCustomer.Key = "", item.SharedShelves, New SortedDictionary(Of Integer, String))
+                For i As Integer = 0 To list.Count - 1
+                    map(positions(i)) = list(i).ShelfNo
+                Next
+                If byCustomer.Key <> "" Then item.CustomerShelves(byCustomer.Key) = map
             Next
 
             items.Add(item)

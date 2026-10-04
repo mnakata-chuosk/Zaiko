@@ -101,7 +101,7 @@ Public Class FrmShelf
         For i As Integer = 1 To SLOTS
             add(COL_SHELF & i, 90, False).MaxInputLength = 200
         Next
-        add(COL_EXTRA, 56, True).ToolTipText = $"{SLOTS + 1}件目以降の棚番（保存しても変更されません）"
+        add(COL_EXTRA, 56, True).ToolTipText = $"棚番{SLOTS + 1}以降に登録されている棚番の件数（保存しても変更されません）"
     End Sub
 
     ''' <summary>営業所を読み込む（DB から取り直し）</summary>
@@ -132,23 +132,24 @@ Public Class FrmShelf
     End Sub
 
     Private Sub FillRow(row As DataRow, g As ShelfGroup)
-        Dim shelves = g.CurrentShelves
+        Dim map = g.CurrentMap
         row(COL_KEY) = g.Key
         row(COL_MODEL) = g.Model
         row(COL_CUST) = If(g.IsShared, "", g.CustomerShortCode)
         row(COL_CUST_NAME) = If(g.IsShared, "（共用棚）", g.CustomerName)
         row(COL_STOCK) = g.StockQuantity
-        For i As Integer = 0 To SLOTS - 1
-            row(COL_SHELF & (i + 1)) = If(i < shelves.Count, shelves(i), "")
+        For pos As Integer = 1 To SLOTS
+            Dim v As String = Nothing
+            row(COL_SHELF & pos) = If(map.TryGetValue(pos, v), v, "")
         Next
-        row(COL_EXTRA) = If(shelves.Count > SLOTS, $"+{shelves.Count - SLOTS}", "")
+        row(COL_EXTRA) = If(g.ExtraCount > 0, $"+{g.ExtraCount}", "")
         row(COL_CHANGED) = g.IsChanged OrElse IsNewGroup(g)
         row(COL_HAS_STOCK) = g.StockQuantity <> 0
     End Sub
 
     ''' <summary>まだ DB に1件も無いグループ（行追加・Excel 読み込みで追加した行）</summary>
     Private Shared Function IsNewGroup(g As ShelfGroup) As Boolean
-        Return g.Records.Count = 0 AndAlso g.CurrentShelves.Count > 0
+        Return g.Records.Count = 0 AndAlso g.CurrentMap.Count > 0
     End Function
 
     Private Sub ApplyFilter()
@@ -213,7 +214,7 @@ Public Class FrmShelf
         If view Is Nothing Then Return
         Dim key = CStr(view(COL_KEY))
 
-        ' 空欄の詰め直しで同じ行の他セルも書き換えるため、編集の確定後に行う
+        ' 行の表示（変更フラグ・他件数）を書き換えるため、編集の確定後に行う
         BeginInvoke(New Action(Sub() ApplyRowEdit(key)))
     End Sub
 
@@ -222,7 +223,7 @@ Public Class FrmShelf
         Dim g As ShelfGroup = Nothing
         If row Is Nothing OrElse Not _groups.TryGetValue(key, g) Then Return
 
-        g.ApplySlots(Enumerable.Range(1, SLOTS).Select(Function(i) TryCast(row(COL_SHELF & i), String)))
+        g.ApplySlots(Enumerable.Range(1, SLOTS).Select(Function(i) TryCast(row(COL_SHELF & i), String)).ToList())
         _rendering = True
         Try
             FillRow(row, g)
@@ -237,13 +238,12 @@ Public Class FrmShelf
         Dim g = GroupOf(e.RowIndex)
         If g Is Nothing Then Return
 
-        Dim slot = CInt(Dgv.Columns(e.ColumnIndex).Name.Substring(COL_SHELF.Length)) - 1
+        Dim pos = CInt(Dgv.Columns(e.ColumnIndex).Name.Substring(COL_SHELF.Length))
         Dim value = If(TryCast(e.Value, String), "")
-        Dim original = g.OriginalShelves
-        Dim originalValue = If(slot < original.Count, original(slot), "")
+        Dim originalValue As String = Nothing
+        If Not g.OriginalMap.TryGetValue(pos, originalValue) Then originalValue = ""
 
-        Dim current = g.CurrentShelves
-        If value <> "" AndAlso current.Take(SLOTS).Count(Function(s) s = value) > 1 Then
+        If value <> "" AndAlso g.CurrentMap.Values.Where(Function(s) s = value).Count() > 1 Then
             e.CellStyle.BackColor = COLOR_DUPLICATE
         ElseIf value <> originalValue Then
             e.CellStyle.BackColor = COLOR_CHANGED
@@ -344,7 +344,7 @@ Public Class FrmShelf
             Try
                 For Each c In dlg.SelectedChanges
                     If Not _groups.ContainsKey(c.Group.Key) Then AddGroup(c.Group)
-                    c.Group.PendingShelves = c.After
+                    c.Group.PendingMap = c.After
                     FillRow(_table.Rows.Find(c.Group.Key), c.Group)
                 Next
             Finally
@@ -371,7 +371,7 @@ Public Class FrmShelf
             Return
         End If
 
-        Dim duplicates = changed.Where(Function(g) g.CurrentShelves.Distinct().Count() <> g.CurrentShelves.Count).ToList()
+        Dim duplicates = changed.Where(Function(g) g.CurrentMap.Values.Distinct().Count() <> g.CurrentMap.Count).ToList()
         Dim msg = $"{CboOffice.Text}営業所の棚番を {changed.Count} 件（型式×得意先）更新します。よろしいですか？"
         If duplicates.Count > 0 Then
             msg = $"同じ棚番が重複している行が {duplicates.Count} 件あります（{String.Join("、", duplicates.Take(5).Select(Function(g) g.Model))}）。{vbCrLf}{vbCrLf}" & msg

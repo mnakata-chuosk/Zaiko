@@ -5,11 +5,16 @@ Public Class ShelfRecord
     ''' <summary>商品棚番明細番号（商品CD内の連番。営業所をまたいで共通）</summary>
     Public Property DetailNo As Integer
     Public Property ShelfNo As String
+    ''' <summary>帳票出力優先順（DB の値）</summary>
+    Public Property Priority As Decimal?
+    ''' <summary>棚番の位置（ShelfPositions.Assign で決めた 1～）</summary>
+    Public Property Position As Integer
 End Class
 
 ''' <summary>
 ''' 棚番の編集単位（営業所内の 商品CD × 得意先指定）。
 ''' 得意先指定なし（共用棚）は CustomerCode = ""。
+''' 棚番は位置（帳票出力優先順）をキーに持ち、空き位置は詰めない。
 ''' </summary>
 Public Class ShelfGroup
 
@@ -25,15 +30,15 @@ Public Class ShelfGroup
     ''' <summary>在庫数（共用棚は型式の合計、得意先指定はその得意先分）</summary>
     Public Property StockQuantity As Decimal
 
-    ''' <summary>読み込み時点の明細（帳票出力優先順 → 明細番号の順）</summary>
+    ''' <summary>読み込み時点の明細（位置の割り当て済み）</summary>
     Public ReadOnly Property Records As New List(Of ShelfRecord)
 
     ''' <summary>読み込み時点の件数と SysStartTime の最大値（同時編集の検出用）</summary>
     Public Property LoadedCount As Integer
     Public Property LoadedStamp As DateTime?
 
-    ''' <summary>編集後の棚番（Nothing は未変更）。6件目以降も含む全件</summary>
-    Public Property PendingShelves As List(Of String)
+    ''' <summary>編集後の棚番（位置 → 棚番。Nothing は未変更）。6 以降の位置も含む</summary>
+    Public Property PendingMap As SortedDictionary(Of Integer, String)
 
     Public ReadOnly Property Key As String
         Get
@@ -51,34 +56,59 @@ Public Class ShelfGroup
         End Get
     End Property
 
-    ''' <summary>読み込み時点の棚番（全件）</summary>
-    Public ReadOnly Property OriginalShelves As List(Of String)
+    ''' <summary>明細を追加し終えたら呼ぶ。帳票出力優先順から位置を決める</summary>
+    Public Sub AssignPositions()
+        Dim positions = ShelfPositions.Assign(Records.Select(Function(r) r.Priority).ToList())
+        For i As Integer = 0 To Records.Count - 1
+            Records(i).Position = positions(i)
+        Next
+    End Sub
+
+    ''' <summary>読み込み時点の棚番（位置 → 棚番。空の棚番は含めない）</summary>
+    Public ReadOnly Property OriginalMap As SortedDictionary(Of Integer, String)
         Get
-            Return Records.Select(Function(r) r.ShelfNo).ToList()
+            Dim map As New SortedDictionary(Of Integer, String)
+            For Each r In Records
+                If r.ShelfNo <> "" Then map(r.Position) = r.ShelfNo
+            Next
+            Return map
         End Get
     End Property
 
     ''' <summary>現在の棚番（編集中なら編集後、未編集なら読み込み時点）</summary>
-    Public ReadOnly Property CurrentShelves As List(Of String)
+    Public ReadOnly Property CurrentMap As SortedDictionary(Of Integer, String)
         Get
-            Return If(PendingShelves, OriginalShelves)
+            Return If(PendingMap, OriginalMap)
         End Get
     End Property
 
     ''' <summary>編集で内容が変わったか</summary>
     Public ReadOnly Property IsChanged As Boolean
         Get
-            Return PendingShelves IsNot Nothing AndAlso Not PendingShelves.SequenceEqual(OriginalShelves)
+            Return PendingMap IsNot Nothing AndAlso Not ShelfPositions.SameMap(PendingMap, OriginalMap)
+        End Get
+    End Property
+
+    ''' <summary>位置 6 以降の棚番の件数</summary>
+    Public ReadOnly Property ExtraCount As Integer
+        Get
+            Return CurrentMap.Keys.Where(Function(p) p > EDIT_SLOTS).Count()
         End Get
     End Property
 
     ''' <summary>
-    ''' 横並び5枠の編集結果を反映する。6件目以降は現在の内容をそのまま残す。空欄は詰める。
+    ''' 棚番1～5 の編集結果を反映する（空欄はその位置の棚番を削除。詰めない）。位置 6 以降はそのまま残す。
     ''' </summary>
-    Public Sub ApplySlots(slots As IEnumerable(Of String))
-        Dim edited = slots.Select(Function(s) If(s, "").Trim()).Where(Function(s) s <> "").ToList()
-        edited.AddRange(CurrentShelves.Skip(EDIT_SLOTS))
-        PendingShelves = edited
+    Public Sub ApplySlots(slots As IList(Of String))
+        Dim map As New SortedDictionary(Of Integer, String)
+        For Each kv In CurrentMap.Where(Function(x) x.Key > EDIT_SLOTS)
+            map(kv.Key) = kv.Value
+        Next
+        For i As Integer = 0 To Math.Min(slots.Count, EDIT_SLOTS) - 1
+            Dim v = If(slots(i), "").Trim()
+            If v <> "" Then map(i + 1) = v
+        Next
+        PendingMap = map
     End Sub
 
 End Class
