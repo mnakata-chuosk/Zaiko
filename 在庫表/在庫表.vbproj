@@ -84,6 +84,9 @@
   <PropertyGroup>
     <ApplicationManifest>My Project\app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup>
+    <SignManifests>false</SignManifests>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="ChuoUtils">
       <HintPath>\\192.168.10.20\etc\VS_App\ライブラリ\ChuoUtils\latest\ChuoUtils.dll</HintPath>
