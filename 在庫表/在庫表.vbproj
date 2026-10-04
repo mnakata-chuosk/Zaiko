@@ -122,6 +122,32 @@
       <DependentUpon>FrmMain.vb</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Shelf\FrmShelf.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\FrmShelf.Designer.vb">
+      <DependentUpon>FrmShelf.vb</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\FrmShelfAdd.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\FrmShelfAdd.Designer.vb">
+      <DependentUpon>FrmShelfAdd.vb</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\FrmShelfImport.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\FrmShelfImport.Designer.vb">
+      <DependentUpon>FrmShelfImport.vb</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Shelf\ShelfExcelImporter.vb" />
+    <Compile Include="Shelf\ShelfGroup.vb" />
+    <Compile Include="Shelf\ShelfImportPlanner.vb" />
+    <Compile Include="Shelf\ShelfRepository.vb" />
+    <Compile Include="Stocktaking\ListHeaders.vb" />
     <Compile Include="Stocktaking\StockRow.vb" />
     <Compile Include="Stocktaking\StocktakingItem.vb" />
     <Compile Include="Stocktaking\StocktakingLoader.vb" />

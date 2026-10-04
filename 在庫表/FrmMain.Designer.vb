@@ -31,7 +31,11 @@ Partial Class FrmMain
         Me.BtnStocktaking = New System.Windows.Forms.Button()
         Me.LblShelfSlots = New System.Windows.Forms.Label()
         Me.CboShelfSlots = New System.Windows.Forms.ComboBox()
+        Me.GbxShelf = New System.Windows.Forms.GroupBox()
+        Me.LblShelfGuide = New System.Windows.Forms.Label()
+        Me.BtnShelf = New System.Windows.Forms.Button()
         Me.GbxStocktaking.SuspendLayout()
+        Me.GbxShelf.SuspendLayout()
         Me.SuspendLayout()
         '
         'Mbar
@@ -121,11 +125,41 @@ Partial Class FrmMain
         Me.CboShelfSlots.Size = New System.Drawing.Size(56, 28)
         Me.CboShelfSlots.TabIndex = 1
         '
+        'GbxShelf
+        '
+        Me.GbxShelf.Controls.Add(Me.LblShelfGuide)
+        Me.GbxShelf.Controls.Add(Me.BtnShelf)
+        Me.GbxShelf.Location = New System.Drawing.Point(16, 228)
+        Me.GbxShelf.Name = "GbxShelf"
+        Me.GbxShelf.Size = New System.Drawing.Size(328, 68)
+        Me.GbxShelf.TabIndex = 5
+        Me.GbxShelf.TabStop = False
+        Me.GbxShelf.Text = "棚番"
+        '
+        'LblShelfGuide
+        '
+        Me.LblShelfGuide.AutoSize = True
+        Me.LblShelfGuide.Location = New System.Drawing.Point(16, 32)
+        Me.LblShelfGuide.Name = "LblShelfGuide"
+        Me.LblShelfGuide.Size = New System.Drawing.Size(163, 20)
+        Me.LblShelfGuide.TabIndex = 0
+        Me.LblShelfGuide.Text = "編集・Excelから反映"
+        '
+        'BtnShelf
+        '
+        Me.BtnShelf.Location = New System.Drawing.Point(216, 22)
+        Me.BtnShelf.Name = "BtnShelf"
+        Me.BtnShelf.Size = New System.Drawing.Size(96, 36)
+        Me.BtnShelf.TabIndex = 1
+        Me.BtnShelf.Text = "棚番編集"
+        Me.BtnShelf.UseVisualStyleBackColor = True
+        '
         'FrmMain
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(96.0!, 96.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi
-        Me.ClientSize = New System.Drawing.Size(360, 236)
+        Me.ClientSize = New System.Drawing.Size(360, 310)
+        Me.Controls.Add(Me.GbxShelf)
         Me.Controls.Add(Me.GbxStocktaking)
         Me.Controls.Add(Me.CboOffice)
         Me.Controls.Add(Me.LblOffice)
@@ -140,6 +174,8 @@ Partial Class FrmMain
         Me.Text = "在庫表"
         Me.GbxStocktaking.ResumeLayout(False)
         Me.GbxStocktaking.PerformLayout()
+        Me.GbxShelf.ResumeLayout(False)
+        Me.GbxShelf.PerformLayout()
         Me.ResumeLayout(False)
         Me.PerformLayout()
 
@@ -154,4 +190,7 @@ Partial Class FrmMain
     Friend WithEvents BtnStocktaking As Button
     Friend WithEvents LblShelfSlots As Label
     Friend WithEvents CboShelfSlots As ComboBox
+    Friend WithEvents GbxShelf As GroupBox
+    Friend WithEvents LblShelfGuide As Label
+    Friend WithEvents BtnShelf As Button
 End Class

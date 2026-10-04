@@ -18,7 +18,7 @@ Public NotInheritable Class StocktakingWriter
     Private ReadOnly SLOTS As Integer
     ''' <summary>リスト外の現物を書き込むための追記行数</summary>
     Private Const APPEND_ROWS As Integer = 10
-    Private Const APPEND_LABEL As String = "追記"
+    Private Const APPEND_LABEL As String = ListHeaders.APPEND_NO
     Private Const PRINT_SHEET_NAME As String = "印刷用"
 
     ' 一覧シートの列
@@ -41,6 +41,7 @@ Public NotInheritable Class StocktakingWriter
     Private ReadOnly L_PRICE As Integer                         ' 単価
     Private ReadOnly L_AMOUNT As Integer                        ' 差額
     Private ReadOnly L_NOTE As Integer                          ' 備考
+    Private ReadOnly L_CUST_CODE As Integer                     ' 得意先CD（AXIS内部コード。非表示。棚番の Excel 読み込み用）
     Private ReadOnly L_COLS As Integer
     Private Const L_HEADER_ROW As Integer = 2
     Private Const L_FIRST_ROW As Integer = 3
@@ -73,7 +74,8 @@ Public NotInheritable Class StocktakingWriter
         L_PRICE = L_ALLOC + 6
         L_AMOUNT = L_ALLOC + 7
         L_NOTE = L_ALLOC + 8
-        L_COLS = L_NOTE
+        L_CUST_CODE = L_ALLOC + 9
+        L_COLS = L_CUST_CODE
     End Sub
 
     ''' <summary>
@@ -84,7 +86,7 @@ Public NotInheritable Class StocktakingWriter
         Dim w As New StocktakingWriter(opt.ShelfSlots)
         Dim xl As New ExcelObject()
         Try
-            xl.SheetName = $"{opt.OfficeLabel} 在庫一覧"
+            xl.SheetName = opt.OfficeLabel & ListHeaders.SHEET_SUFFIX
             w.WriteListSheet(xl, items, opt)
 
             xl.AddSheet(PRINT_SHEET_NAME)
@@ -171,7 +173,7 @@ Public NotInheritable Class StocktakingWriter
             headers.Add("棚番")
             headers.Add("数量")
         Next
-        headers.AddRange({"振分数", "棚卸総数", "AX在庫数", "＋", "－", "差数", "単価", "差額", "備考"})
+        headers.AddRange({"振分数", "棚卸総数", "AX在庫数", "＋", "－", "差数", "単価", "差額", "備考", ListHeaders.CUSTOMER_CODE})
         For c As Integer = 0 To L_COLS - 1
             data(L_HEADER_ROW - 1, c) = headers(c)
         Next
@@ -191,6 +193,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetColumnsNumberFormat(L_ALLOC, L_DIFF, nfInteger)
         xl.SetColumnNumberFormat(L_PRICE, If(HasFraction(items), nfDecimal2, nfInteger))
         xl.SetColumnNumberFormat(L_AMOUNT, nfInteger)
+        xl.SetColumnNumberFormat(L_CUST_CODE, nfString)
 
         xl.SetValue(data)
 
@@ -207,8 +210,9 @@ Public NotInheritable Class StocktakingWriter
             widths.Add(8)
             widths.Add(7)
         Next
-        widths.AddRange({8, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24})
+        widths.AddRange({8, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24, 10})
         xl.SetColumnsWidth(widths.ToArray())
+        xl.SetColumnHidden(L_CUST_CODE)
 
         ' 子行・振分数入力欄・棚卸対象外
         For Each s In childSpans
@@ -230,7 +234,7 @@ Public NotInheritable Class StocktakingWriter
                 fc.Interior.Color = COLOR_ALERT
 
                 ' 追記行の枠
-                sh.Range(sh.Cells(firstAppendRow, 1), sh.Cells(lastRow, L_COLS)).Borders.LineStyle = xlContinuous
+                sh.Range(sh.Cells(firstAppendRow, 1), sh.Cells(lastRow, L_NOTE)).Borders.LineStyle = xlContinuous
 
                 ' 行グループのボタンを親行側に出す
                 sh.Outline.SummaryRow = 0   ' xlAbove
@@ -245,7 +249,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetColumnsGroup(L_PLUS, L_MINUS)
         xl.ColumnLevels = 1
 
-        xl.SetAutoFilter(L_HEADER_ROW, 1, lastRow, L_COLS)
+        xl.SetAutoFilter(L_HEADER_ROW, 1, lastRow, L_NOTE)
 
         xl.WithSheet(sheetName,
             Sub(sh)
@@ -273,6 +277,7 @@ Public NotInheritable Class StocktakingWriter
     Private Sub SetListRowInfo(line As Object(), item As StocktakingItem, r As StockRow)
         line(L_WH - 1) = r.Warehouse
         line(L_CUST - 1) = r.CustomerShortCode
+        line(L_CUST_CODE - 1) = r.CustomerCode
         line(L_SUP - 1) = r.SupplierShortCode
         line(L_ITEM - 1) = item.ItemCode
         line(L_NAME - 1) = item.Model
@@ -329,7 +334,7 @@ Public NotInheritable Class StocktakingWriter
     ''' <summary>子行（振分数＋得意先指定棚の数量が棚卸総数）</summary>
     Private Function ListChildLine(item As StocktakingItem, r As StockRow, row As Integer) As Object()
         Dim line = NewListLine()
-        line(L_NO - 1) = "-"
+        line(L_NO - 1) = ListHeaders.CHILD_NO
         SetListRowInfo(line, item, r)
         SetListShelves(line, item.ShelvesOf(r))
         line(L_TOTAL - 1) = $"={Col(L_ALLOC)}{row}+{QtySum(row)}"
@@ -340,9 +345,9 @@ Public NotInheritable Class StocktakingWriter
     ''' <summary>棚卸対象外ステータスの行（参考表示のみ、数式なし）</summary>
     Private Function ListExcludedLine(item As StocktakingItem, r As StockRow, showNo As Boolean) As Object()
         Dim line = NewListLine()
-        line(L_NO - 1) = If(showNo, CObj(item.No), "-")
+        line(L_NO - 1) = If(showNo, CObj(item.No), ListHeaders.CHILD_NO)
         SetListRowInfo(line, item, r)
-        line(L_NOTE - 1) = "棚卸対象外"
+        line(L_NOTE - 1) = ListHeaders.EXCLUDED_NOTE
         Return line
     End Function
 

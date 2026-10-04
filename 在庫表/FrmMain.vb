@@ -48,6 +48,12 @@ Public Class FrmMain
         End Get
     End Property
 
+    Private Sub BtnShelf_Click(sender As Object, e As EventArgs) Handles BtnShelf.Click
+        Using frm As New FrmShelf(CboOffice.SelectedIndex, _userSettings?.UserID)
+            frm.ShowDialog(Me)
+        End Using
+    End Sub
+
     Private Sub BtnStocktaking_Click(sender As Object, e As EventArgs) Handles BtnStocktaking.Click
         Dim officeCode As String = SelectedOfficeCode
         Dim officeIndex As Integer = CboOffice.SelectedIndex
