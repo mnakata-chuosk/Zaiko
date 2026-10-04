@@ -35,7 +35,7 @@ Public NotInheritable Class StocktakingWriter
     Private Const L_SHELF As Integer = 9                        ' 棚番1（数量1 は +1、以降 2 列おき）
     Private Const L_ALLOC As Integer = L_SHELF + SLOTS * 2      ' 振分数（親行は振分残）
     Private Const L_TOTAL As Integer = L_ALLOC + 1              ' 棚卸総数
-    Private Const L_BOOK As Integer = L_ALLOC + 2               ' AS在庫数
+    Private Const L_BOOK As Integer = L_ALLOC + 2               ' AX在庫数
     Private Const L_PLUS As Integer = L_ALLOC + 3               ' ＋（売上漏れ）
     Private Const L_MINUS As Integer = L_ALLOC + 4              ' －（仕入漏れ）
     Private Const L_DIFF As Integer = L_ALLOC + 5               ' 差数
@@ -157,7 +157,7 @@ Public NotInheritable Class StocktakingWriter
             headers.Add("棚番")
             headers.Add("数量")
         Next
-        headers.AddRange({"振分数", "棚卸総数", "AS在庫数", "＋", "－", "差数", "単価", "差額", "備考"})
+        headers.AddRange({"振分数", "棚卸総数", "AX在庫数", "＋", "－", "差数", "単価", "差額", "備考"})
         For c As Integer = 0 To L_COLS - 1
             data(L_HEADER_ROW - 1, c) = headers(c)
         Next
@@ -469,10 +469,16 @@ Public NotInheritable Class StocktakingWriter
                 With sh.PageSetup
                     .Orientation = xlLandscape
                     .PaperSize = xlPaperA4
-                    .TopMargin = 45
-                    .BottomMargin = 4
-                    .LeftMargin = 10
-                    .RightMargin = 10
+                    ' 余白は最小限（ヘッダー分だけ上を空ける）にし、横1ページに収める
+                    .TopMargin = 24
+                    .BottomMargin = 6
+                    .LeftMargin = 6
+                    .RightMargin = 6
+                    .HeaderMargin = 6
+                    .FooterMargin = 0
+                    .Zoom = False
+                    .FitToPagesWide = 1
+                    .FitToPagesTall = False
                     .CenterHorizontally = True
                     .PrintTitleRows = "$1:$1"
                     .LeftHeader = outputText
