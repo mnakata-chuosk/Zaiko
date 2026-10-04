@@ -9,15 +9,13 @@ Imports ChuoUtils.ExcelTools
 ''' <remarks>
 ''' 一覧シート … 帳簿との突き合わせ用。型式を親行、得意先・倉庫・ステータス別を子行とし、
 '''               共用棚で数えた数量を子行の「振分数」に人が振り分ける。親行の振分数欄は振分残（0 以外で赤）。
-''' 印刷用シート … 現場記入用。旧「棚卸表作成」と同じ横持ちで [棚番・数量] を5組固定。
+''' 印刷用シート … 現場記入用。旧「棚卸表作成」と同じ横持ちで [棚番・数量] は画面で選んだ組数（3～5）。
 ''' 両シートとも末尾に追記用の空行を設け、リスト外の現物はそこに書き込む。
 ''' </remarks>
 Public NotInheritable Class StocktakingWriter
 
-    Private Sub New()
-    End Sub
-
-    Private Const SLOTS As Integer = StocktakingItem.SHELF_SLOTS
+    ''' <summary>[棚番・数量] の組数（3～5、一覧・印刷用で共通）</summary>
+    Private ReadOnly SLOTS As Integer
     ''' <summary>リスト外の現物を書き込むための追記行数</summary>
     Private Const APPEND_ROWS As Integer = 10
     Private Const APPEND_LABEL As String = "追記"
@@ -33,16 +31,17 @@ Public NotInheritable Class StocktakingWriter
     Private Const L_STATUS As Integer = 7
     Private Const L_REG As Integer = 8
     Private Const L_SHELF As Integer = 9                        ' 棚番1（数量1 は +1、以降 2 列おき）
-    Private Const L_ALLOC As Integer = L_SHELF + SLOTS * 2      ' 振分数（親行は振分残）
-    Private Const L_TOTAL As Integer = L_ALLOC + 1              ' 棚卸総数
-    Private Const L_BOOK As Integer = L_ALLOC + 2               ' AX在庫数
-    Private Const L_PLUS As Integer = L_ALLOC + 3               ' ＋（売上漏れ）
-    Private Const L_MINUS As Integer = L_ALLOC + 4              ' －（仕入漏れ）
-    Private Const L_DIFF As Integer = L_ALLOC + 5               ' 差数
-    Private Const L_PRICE As Integer = L_ALLOC + 6              ' 単価
-    Private Const L_AMOUNT As Integer = L_ALLOC + 7             ' 差額
-    Private Const L_NOTE As Integer = L_ALLOC + 8               ' 備考
-    Private Const L_COLS As Integer = L_NOTE
+    ' 棚番列より右は組数で位置が変わる
+    Private ReadOnly L_ALLOC As Integer                         ' 振分数（親行は振分残）
+    Private ReadOnly L_TOTAL As Integer                         ' 棚卸総数
+    Private ReadOnly L_BOOK As Integer                          ' AX在庫数
+    Private ReadOnly L_PLUS As Integer                          ' ＋（売上漏れ）
+    Private ReadOnly L_MINUS As Integer                         ' －（仕入漏れ）
+    Private ReadOnly L_DIFF As Integer                          ' 差数
+    Private ReadOnly L_PRICE As Integer                         ' 単価
+    Private ReadOnly L_AMOUNT As Integer                        ' 差額
+    Private ReadOnly L_NOTE As Integer                          ' 備考
+    Private ReadOnly L_COLS As Integer
     Private Const L_HEADER_ROW As Integer = 2
     Private Const L_FIRST_ROW As Integer = 3
 
@@ -63,18 +62,33 @@ Public NotInheritable Class StocktakingWriter
         End Sub
     End Structure
 
+    Private Sub New(shelfSlots As Integer)
+        SLOTS = shelfSlots
+        L_ALLOC = L_SHELF + SLOTS * 2
+        L_TOTAL = L_ALLOC + 1
+        L_BOOK = L_ALLOC + 2
+        L_PLUS = L_ALLOC + 3
+        L_MINUS = L_ALLOC + 4
+        L_DIFF = L_ALLOC + 5
+        L_PRICE = L_ALLOC + 6
+        L_AMOUNT = L_ALLOC + 7
+        L_NOTE = L_ALLOC + 8
+        L_COLS = L_NOTE
+    End Sub
+
     ''' <summary>
     ''' 棚卸表を作成して Excel を表示する。表示後の Excel はユーザーに移譲する。
     ''' </summary>
     ''' <param name="savePath">指定時は表示せずにこのパスへ保存して閉じる（一括出力・検証用）</param>
     Public Shared Sub Write(items As List(Of StocktakingItem), opt As StocktakingOptions, Optional savePath As String = Nothing)
+        Dim w As New StocktakingWriter(opt.ShelfSlots)
         Dim xl As New ExcelObject()
         Try
             xl.SheetName = $"{opt.OfficeLabel} 在庫一覧"
-            WriteListSheet(xl, items, opt)
+            w.WriteListSheet(xl, items, opt)
 
             xl.AddSheet(PRINT_SHEET_NAME)
-            WritePrintSheet(xl, items, opt)
+            w.WritePrintSheet(xl, items, opt)
             xl.SetFreezePanes(2, 1)
 
             ' Show() は最後に SetFreezePanes したシート（=先頭シート）にだけ固定を再適用するため、一覧シートを最後にする
@@ -98,7 +112,7 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ' 一覧シート
     ' ============================================================
-    Private Shared Sub WriteListSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
+    Private Sub WriteListSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
         Dim lines As New List(Of Object())
         Dim childSpans As New List(Of RowSpan)     ' 子行（灰色・振分数入力）
         Dim excludedSpans As New List(Of RowSpan)  ' 棚卸対象外
@@ -251,12 +265,12 @@ Public NotInheritable Class StocktakingWriter
             End Sub)
     End Sub
 
-    Private Shared Function NewListLine() As Object()
+    Private Function NewListLine() As Object()
         Return New Object(L_COLS - 1) {}
     End Function
 
     ''' <summary>型式・在庫行の共通項目</summary>
-    Private Shared Sub SetListRowInfo(line As Object(), item As StocktakingItem, r As StockRow)
+    Private Sub SetListRowInfo(line As Object(), item As StocktakingItem, r As StockRow)
         line(L_WH - 1) = r.Warehouse
         line(L_CUST - 1) = r.CustomerShortCode
         line(L_SUP - 1) = r.SupplierShortCode
@@ -268,7 +282,7 @@ Public NotInheritable Class StocktakingWriter
     End Sub
 
     ''' <summary>棚番を記入欄へ（6件目以降は備考に件数を出す）</summary>
-    Private Shared Sub SetListShelves(line As Object(), shelves As List(Of String))
+    Private Sub SetListShelves(line As Object(), shelves As List(Of String))
         For i As Integer = 0 To Math.Min(shelves.Count, SLOTS) - 1
             line(L_SHELF - 1 + i * 2) = shelves(i)
         Next
@@ -278,13 +292,13 @@ Public NotInheritable Class StocktakingWriter
     End Sub
 
     ''' <summary>差数・差額の数式</summary>
-    Private Shared Sub SetDiffFormulas(line As Object(), row As Integer)
+    Private Sub SetDiffFormulas(line As Object(), row As Integer)
         line(L_DIFF - 1) = $"={Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row}"
         line(L_AMOUNT - 1) = $"={Col(L_DIFF)}{row}*{Col(L_PRICE)}{row}"
     End Sub
 
     ''' <summary>単独行（棚卸対象が1行だけの型式）</summary>
-    Private Shared Function ListSingleLine(item As StocktakingItem, row As Integer) As Object()
+    Private Function ListSingleLine(item As StocktakingItem, row As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = item.No
         SetListRowInfo(line, item, item.Targets(0))
@@ -296,7 +310,7 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>親行（共用棚の数量を記入。振分数欄は振分残）</summary>
-    Private Shared Function ListParentLine(item As StocktakingItem, row As Integer, lastChildRow As Integer) As Object()
+    Private Function ListParentLine(item As StocktakingItem, row As Integer, lastChildRow As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = item.No
         line(L_WH - 1) = item.CommonValue(Function(r) r.Warehouse)
@@ -313,7 +327,7 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>子行（振分数＋得意先指定棚の数量が棚卸総数）</summary>
-    Private Shared Function ListChildLine(item As StocktakingItem, r As StockRow, row As Integer) As Object()
+    Private Function ListChildLine(item As StocktakingItem, r As StockRow, row As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = "-"
         SetListRowInfo(line, item, r)
@@ -324,7 +338,7 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>棚卸対象外ステータスの行（参考表示のみ、数式なし）</summary>
-    Private Shared Function ListExcludedLine(item As StocktakingItem, r As StockRow, showNo As Boolean) As Object()
+    Private Function ListExcludedLine(item As StocktakingItem, r As StockRow, showNo As Boolean) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = If(showNo, CObj(item.No), "-")
         SetListRowInfo(line, item, r)
@@ -333,7 +347,7 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>追記用の空行（数式のみ）</summary>
-    Private Shared Function ListAppendLine(row As Integer) As Object()
+    Private Function ListAppendLine(row As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = APPEND_LABEL
         line(L_TOTAL - 1) = $"={QtySum(row)}"
@@ -342,7 +356,7 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>数量列の合計式（SUM(J3,L3,...)）</summary>
-    Private Shared Function QtySum(row As Integer) As String
+    Private Function QtySum(row As Integer) As String
         Dim cells = Enumerable.Range(0, SLOTS).Select(Function(i) $"{Col(L_SHELF + i * 2 + 1)}{row}")
         Return $"SUM({String.Join(",", cells)})"
     End Function
@@ -350,7 +364,7 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ' 印刷用シート
     ' ============================================================
-    Private Shared Sub WritePrintSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
+    Private Sub WritePrintSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
         Const P_NO As Integer = 1
         Const P_WH As Integer = 2
         Const P_CUST As Integer = 3

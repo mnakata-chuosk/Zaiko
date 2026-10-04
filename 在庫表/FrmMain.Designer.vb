@@ -1,4 +1,4 @@
-<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
+﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
 Partial Class FrmMain
     Inherits System.Windows.Forms.Form
 
@@ -29,6 +29,8 @@ Partial Class FrmMain
         Me.GbxStocktaking = New System.Windows.Forms.GroupBox()
         Me.ChkPrintStock = New System.Windows.Forms.CheckBox()
         Me.BtnStocktaking = New System.Windows.Forms.Button()
+        Me.LblShelfSlots = New System.Windows.Forms.Label()
+        Me.CboShelfSlots = New System.Windows.Forms.ComboBox()
         Me.GbxStocktaking.SuspendLayout()
         Me.SuspendLayout()
         '
@@ -71,6 +73,8 @@ Partial Class FrmMain
         '
         'GbxStocktaking
         '
+        Me.GbxStocktaking.Controls.Add(Me.CboShelfSlots)
+        Me.GbxStocktaking.Controls.Add(Me.LblShelfSlots)
         Me.GbxStocktaking.Controls.Add(Me.ChkPrintStock)
         Me.GbxStocktaking.Controls.Add(Me.BtnStocktaking)
         Me.GbxStocktaking.Location = New System.Drawing.Point(16, 116)
@@ -83,21 +87,39 @@ Partial Class FrmMain
         'ChkPrintStock
         '
         Me.ChkPrintStock.AutoSize = True
-        Me.ChkPrintStock.Location = New System.Drawing.Point(16, 30)
+        Me.ChkPrintStock.Location = New System.Drawing.Point(16, 66)
         Me.ChkPrintStock.Name = "ChkPrintStock"
         Me.ChkPrintStock.Size = New System.Drawing.Size(151, 24)
-        Me.ChkPrintStock.TabIndex = 0
+        Me.ChkPrintStock.TabIndex = 2
         Me.ChkPrintStock.Text = "印刷用に在庫数を表示"
         Me.ChkPrintStock.UseVisualStyleBackColor = True
         '
         'BtnStocktaking
         '
-        Me.BtnStocktaking.Location = New System.Drawing.Point(216, 56)
+        Me.BtnStocktaking.Location = New System.Drawing.Point(216, 58)
         Me.BtnStocktaking.Name = "BtnStocktaking"
         Me.BtnStocktaking.Size = New System.Drawing.Size(96, 36)
-        Me.BtnStocktaking.TabIndex = 1
+        Me.BtnStocktaking.TabIndex = 3
         Me.BtnStocktaking.Text = "出力"
         Me.BtnStocktaking.UseVisualStyleBackColor = True
+        '
+        'LblShelfSlots
+        '
+        Me.LblShelfSlots.AutoSize = True
+        Me.LblShelfSlots.Location = New System.Drawing.Point(16, 32)
+        Me.LblShelfSlots.Name = "LblShelfSlots"
+        Me.LblShelfSlots.Size = New System.Drawing.Size(79, 20)
+        Me.LblShelfSlots.TabIndex = 0
+        Me.LblShelfSlots.Text = "棚番表示数"
+        '
+        'CboShelfSlots
+        '
+        Me.CboShelfSlots.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.CboShelfSlots.FormattingEnabled = True
+        Me.CboShelfSlots.Location = New System.Drawing.Point(104, 28)
+        Me.CboShelfSlots.Name = "CboShelfSlots"
+        Me.CboShelfSlots.Size = New System.Drawing.Size(56, 28)
+        Me.CboShelfSlots.TabIndex = 1
         '
         'FrmMain
         '
@@ -130,4 +152,6 @@ Partial Class FrmMain
     Friend WithEvents GbxStocktaking As GroupBox
     Friend WithEvents ChkPrintStock As CheckBox
     Friend WithEvents BtnStocktaking As Button
+    Friend WithEvents LblShelfSlots As Label
+    Friend WithEvents CboShelfSlots As ComboBox
 End Class

@@ -4,9 +4,6 @@
 ''' </summary>
 Public Class StocktakingItem
 
-    ''' <summary>棚番・数量の記入欄の組数（固定）</summary>
-    Public Const SHELF_SLOTS As Integer = 5
-
     ''' <summary>通し番号（一覧シート・印刷用シート共通）</summary>
     Public Property No As Integer
     Public Property ItemCode As String

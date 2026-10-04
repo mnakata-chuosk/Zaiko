@@ -20,6 +20,16 @@ Public Class FrmMain
         End Using
 
         InitOfficeList()
+        InitShelfSlots()
+    End Sub
+
+    ''' <summary>棚番表示数（[棚番・数量] の組数）を初期化する。既定は最大</summary>
+    Private Sub InitShelfSlots()
+        CboShelfSlots.Items.Clear()
+        For n As Integer = StocktakingOptions.MIN_SHELF_SLOTS To StocktakingOptions.MAX_SHELF_SLOTS
+            CboShelfSlots.Items.Add(n)
+        Next
+        CboShelfSlots.SelectedIndex = CboShelfSlots.Items.Count - 1
     End Sub
 
     ''' <summary>営業所コンボを初期化し、担当者の初期値営業所を選択する</summary>
@@ -57,12 +67,13 @@ Public Class FrmMain
                 .OfficeCode = officeCode,
                 .OfficeLabel = Chuo.OfficeList(officeIndex) & "営業所",
                 .OfficeHeader = $"{officeCode}：{Chuo.OfficeNMList(officeIndex)}営業所",
+                .ShelfSlots = CInt(CboShelfSlots.SelectedItem),
                 .ShowStockOnPrintSheet = ChkPrintStock.Checked,
                 .OutputAt = DateTime.Now
             }
             StocktakingWriter.Write(items, opt)
 
-            App.AddCount(APP_NAME, "棚卸表", $"{officeCode} 印刷用在庫数：{If(ChkPrintStock.Checked, "○", "☓")}")
+            App.AddCount(APP_NAME, "棚卸表", $"{officeCode} 棚番：{opt.ShelfSlots} 印刷用在庫数：{If(ChkPrintStock.Checked, "○", "☓")}")
 
         Catch ex As Exception
             MsgBox(ex.Message, MsgBoxStyle.Exclamation, APP_NAME)
