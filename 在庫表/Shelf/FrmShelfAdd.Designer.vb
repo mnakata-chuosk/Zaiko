@@ -1,4 +1,4 @@
-<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
+﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
 Partial Class FrmShelfAdd
     Inherits System.Windows.Forms.Form
 
@@ -87,8 +87,11 @@ Partial Class FrmShelfAdd
         '
         'CboCustomer
         '
-        Me.CboCustomer.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.CboCustomer.AutoCompleteMode = System.Windows.Forms.AutoCompleteMode.Suggest
+        Me.CboCustomer.AutoCompleteSource = System.Windows.Forms.AutoCompleteSource.ListItems
         Me.CboCustomer.FormattingEnabled = True
+        Me.CboCustomer.IntegralHeight = False
+        Me.CboCustomer.MaxDropDownItems = 15
         Me.CboCustomer.Location = New System.Drawing.Point(84, 96)
         Me.CboCustomer.Name = "CboCustomer"
         Me.CboCustomer.Size = New System.Drawing.Size(368, 28)

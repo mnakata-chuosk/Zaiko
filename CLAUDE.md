@@ -70,7 +70,7 @@ AXIS の棚番登録画面が使いにくいため、本アプリから `AXIS.db
 
 ```
 FrmShelf                棚番編集画面（営業所・型式検索・在庫ありのみ・変更行のみ、行追加、Excel読込、保存）
-├── FrmShelfAdd         行追加（型式完全一致 → 商品、得意先は取扱得意先から選択）
+├── FrmShelfAdd         行追加（型式完全一致 → 商品。得意先は受発注管理と同じく「短縮CD 略称」の入力補完付きドロップダウン、候補は アプリ.va検索ツール_得意先 の営業所分）
 ├── FrmShelfImport      Excel 読込の変更確認（変更がある行だけ 変更前→変更後 で表示）
 ├── ShelfRepository     取得・保存（保存は BuildSaveCommand の SQL バッチ）
 ├── ShelfGroup          編集単位＝営業所内の 商品CD × 得意先指定（共用棚は得意先CD 空）

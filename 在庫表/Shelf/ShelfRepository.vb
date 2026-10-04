@@ -47,12 +47,19 @@ LEFT JOIN AXIS.dbo.M取引先管理 t ON t.取引先CD = h.得意先CD
 WHERE h.商品CD = @ITEM AND h.営業所区分 = @OFFICE
 ORDER BY t.短縮CD"
 
+    ''' <summary>営業所の得意先（受発注管理の得意先選択と同じビュー）</summary>
+    Private Const OFFICE_CUSTOMER_SQL As String = "
+SELECT DISTINCT 得意先CD, ISNULL(得意先短縮CD, '') AS 短縮CD, ISNULL(得意先略称, '') AS 得意先名
+FROM アプリ.dbo.va検索ツール_得意先
+WHERE 営業所 = @OFFICE
+ORDER BY 短縮CD, 得意先CD"
+
     Private Const MODEL_SQL As String = "
 SELECT 商品CD, ISNULL(型式, '') AS 型式
 FROM AXIS.dbo.m商品管理
 WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
 
-    ''' <summary>得意先（取扱得意先明細）</summary>
+    ''' <summary>得意先</summary>
     Public Class Customer
         Public Property Code As String
         Public Property ShortCode As String
@@ -123,6 +130,14 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
     Public Shared Function LoadCustomers(officeCode As String, itemCode As String) As List(Of Customer)
         Dim prm As New Dictionary(Of String, Object) From {{"@OFFICE", officeCode}, {"@ITEM", itemCode}}
         Return Query(CUSTOMER_SQL, prm).Rows.Cast(Of DataRow)() _
+            .Select(Function(r) New Customer With {.Code = Str(r("得意先CD")), .ShortCode = Str(r("短縮CD")), .Name = Str(r("得意先名"))}) _
+            .ToList()
+    End Function
+
+    ''' <summary>営業所の得意先一覧（短縮CD順）</summary>
+    Public Shared Function LoadOfficeCustomers(officeCode As String) As List(Of Customer)
+        Dim prm As New Dictionary(Of String, Object) From {{"@OFFICE", officeCode}}
+        Return Query(OFFICE_CUSTOMER_SQL, prm).Rows.Cast(Of DataRow)() _
             .Select(Function(r) New Customer With {.Code = Str(r("得意先CD")), .ShortCode = Str(r("短縮CD")), .Name = Str(r("得意先名"))}) _
             .ToList()
     End Function

@@ -258,7 +258,16 @@ Public Class FrmShelf
     ' 行追加
     ' ============================================================
     Private Sub BtnAdd_Click(sender As Object, e As EventArgs) Handles BtnAdd.Click
-        Using dlg As New FrmShelfAdd(OfficeCode)
+        Dim dlg As FrmShelfAdd
+        Try
+            dlg = New FrmShelfAdd(OfficeCode)   ' 得意先一覧を DB から読み込む
+        Catch ex As Exception
+            MsgBox(ex.Message, MsgBoxStyle.Exclamation, APP_NAME)
+            App.WriteErrLog(APP_NAME, ex.ToString)
+            Return
+        End Try
+
+        Using dlg
             If dlg.ShowDialog(Me) <> DialogResult.OK Then Return
 
             Dim g = New ShelfGroup With {
