@@ -39,8 +39,38 @@ Public Class FrmMain
     End Property
 
     Private Sub BtnStocktaking_Click(sender As Object, e As EventArgs) Handles BtnStocktaking.Click
-        ' TODO: 棚卸表出力（データ取得 → 一覧シート・印刷用シート作成）を実装する
-        MsgBox($"{CboOffice.Text} の棚卸表出力は未実装です。", MsgBoxStyle.Information, APP_NAME)
+        Dim officeCode As String = SelectedOfficeCode
+        Dim officeIndex As Integer = CboOffice.SelectedIndex
+
+        Me.Enabled = False
+        Me.Cursor = Cursors.WaitCursor
+        Try
+            Dim rows As List(Of StockRow) = StocktakingLoader.LoadStock(officeCode)
+            If rows.Count = 0 Then
+                MsgBox($"{CboOffice.Text} に出力対象の在庫がありません。", MsgBoxStyle.Information, APP_NAME)
+                Exit Sub
+            End If
+
+            Dim items As List(Of StocktakingItem) = StocktakingBuilder.Build(rows, StocktakingLoader.LoadShelves(officeCode))
+
+            Dim opt As New StocktakingOptions With {
+                .OfficeCode = officeCode,
+                .OfficeLabel = Chuo.OfficeList(officeIndex) & "営業所",
+                .OfficeHeader = $"{officeCode}：{Chuo.OfficeNMList(officeIndex)}営業所",
+                .ShowStockOnPrintSheet = ChkPrintStock.Checked,
+                .OutputAt = DateTime.Now
+            }
+            StocktakingWriter.Write(items, opt)
+
+            App.AddCount(APP_NAME, "棚卸表", $"{officeCode} 印刷用在庫数：{If(ChkPrintStock.Checked, "○", "☓")}")
+
+        Catch ex As Exception
+            MsgBox(ex.Message, MsgBoxStyle.Exclamation, APP_NAME)
+            App.WriteErrLog(APP_NAME, ex.ToString)
+        Finally
+            Me.Cursor = Cursors.Default
+            Me.Enabled = True
+        End Try
     End Sub
 
 End Class
