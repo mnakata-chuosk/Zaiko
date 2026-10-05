@@ -54,6 +54,14 @@ FROM アプリ.dbo.va検索ツール_得意先
 WHERE 営業所 = @OFFICE
 ORDER BY 短縮CD, 得意先CD"
 
+    ''' <summary>営業所の取扱得意先（型式 × 得意先）。行追加画面の相互絞り込みに使う</summary>
+    Private Const HANDLING_SQL As String = "
+SELECT h.商品CD, ISNULL(m.型式, '') AS 型式, h.得意先CD, ISNULL(t.短縮CD, '') AS 短縮CD, ISNULL(t.略称, ISNULL(t.取引先名, '')) AS 得意先名
+FROM AXIS.dbo.m商品取扱得意先明細 h
+INNER JOIN AXIS.dbo.m商品管理 m ON m.商品CD = h.商品CD AND ISNULL(m.使用可否区分, '0') = '0'
+LEFT JOIN AXIS.dbo.M取引先管理 t ON t.取引先CD = h.得意先CD
+WHERE h.営業所区分 = @OFFICE AND ISNULL(m.型式, '') <> ''"
+
     Private Const MODEL_SQL As String = "
 SELECT 商品CD, ISNULL(型式, '') AS 型式
 FROM AXIS.dbo.m商品管理
@@ -139,6 +147,25 @@ WHERE 型式 = @MODEL AND ISNULL(使用可否区分, '0') = '0'"
         Dim prm As New Dictionary(Of String, Object) From {{"@OFFICE", officeCode}}
         Return Query(OFFICE_CUSTOMER_SQL, prm).Rows.Cast(Of DataRow)() _
             .Select(Function(r) New Customer With {.Code = Str(r("得意先CD")), .ShortCode = Str(r("短縮CD")), .Name = Str(r("得意先名"))}) _
+            .ToList()
+    End Function
+
+    ''' <summary>取扱得意先1件（型式 × 得意先）</summary>
+    Public Class Handling
+        Public Property ItemCode As String
+        Public Property Model As String
+        Public Property Customer As Customer
+    End Class
+
+    ''' <summary>営業所の取扱得意先（型式 × 得意先）</summary>
+    Public Shared Function LoadOfficeHandling(officeCode As String) As List(Of Handling)
+        Dim prm As New Dictionary(Of String, Object) From {{"@OFFICE", officeCode}}
+        Return Query(HANDLING_SQL, prm).Rows.Cast(Of DataRow)() _
+            .Select(Function(r) New Handling With {
+                .ItemCode = Str(r("商品CD")),
+                .Model = Str(r("型式")),
+                .Customer = New Customer With {.Code = Str(r("得意先CD")), .ShortCode = Str(r("短縮CD")), .Name = Str(r("得意先名"))}
+            }) _
             .ToList()
     End Function
 
