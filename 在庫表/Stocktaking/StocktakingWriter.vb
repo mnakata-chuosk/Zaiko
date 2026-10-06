@@ -45,7 +45,8 @@ Public NotInheritable Class StocktakingWriter
     Private ReadOnly L_AMOUNT As Integer                        ' 差額
     Private ReadOnly L_NOTE As Integer                          ' 備考
     Private ReadOnly L_CUST_CODE As Integer                     ' 得意先CD（非表示。AXIS内部コード）
-    Private ReadOnly L_ROW_TYPE As Integer                      ' 行種別（非表示。共用／専用／内訳／対象外）
+    Private ReadOnly L_ROW_TYPE As Integer                      ' 行種別（非表示。共用／専用／内訳／専用内訳／対象外）
+    Private ReadOnly L_DETAIL_PRICE As Integer                  ' 内訳単価（非表示。内訳行を専用にしたときの単価・共用棚の行の単価の元）
     Private ReadOnly L_ORDER As Integer                         ' 並び順（非表示。出力時の並びに戻す用）
     Private ReadOnly L_COLS As Integer
     Private Const L_HEADER_ROW As Integer = 2
@@ -80,7 +81,8 @@ Public NotInheritable Class StocktakingWriter
         L_NOTE = baseCol + 8
         L_CUST_CODE = baseCol + 9
         L_ROW_TYPE = baseCol + 10
-        L_ORDER = baseCol + 11
+        L_DETAIL_PRICE = baseCol + 11
+        L_ORDER = baseCol + 12
         L_COLS = L_ORDER
     End Sub
 
@@ -133,14 +135,17 @@ Public NotInheritable Class StocktakingWriter
         For Each item In items
             For Each b In item.Blocks
                 Dim topRow As Integer = rowNo
-                lines.Add(ListTopLine(item, b, rowNo))
+                Dim withDetail = HasDetail(b, opt)
+                Dim details = If(withDetail, New RowSpan(topRow + 1, topRow + b.Rows.Count), New RowSpan(0, 0))
+                lines.Add(ListTopLine(item, b, rowNo, details))
                 rowNo += 1
-                If HasDetail(b, opt) Then
+                If withDetail Then
                     For Each r In b.Rows
-                        lines.Add(ListDetailLine(item, r, b.No, ListHeaders.ROW_DETAIL))
+                        ' 共用棚の内訳行は専用欄に印を付けるとその場で専用棚の行として計算される。専用棚の内訳は参考表示のみ
+                        lines.Add(ListDetailLine(item, r, b.No, If(b.IsDedicated, ListHeaders.ROW_DEDICATED_DETAIL, ListHeaders.ROW_DETAIL), rowNo))
                         rowNo += 1
                     Next
-                    groupSpans.Add(New RowSpan(topRow + 1, rowNo - 1))
+                    groupSpans.Add(details)
                 End If
             Next
 
@@ -149,7 +154,7 @@ Public NotInheritable Class StocktakingWriter
                 Dim first As Integer = rowNo
                 Dim no As Object = If(item.Blocks.Count > 0, CObj(item.Blocks(0).No), Nothing)
                 For Each r In item.Excluded
-                    Dim line = ListDetailLine(item, r, no, ListHeaders.ROW_EXCLUDED)
+                    Dim line = ListDetailLine(item, r, no, ListHeaders.ROW_EXCLUDED, rowNo)
                     line(L_NOTE - 1) = ListHeaders.EXCLUDED_NOTE
                     lines.Add(line)
                     rowNo += 1
@@ -185,7 +190,7 @@ Public NotInheritable Class StocktakingWriter
             headers.Add("数量")
         Next
         headers.AddRange({"棚卸総数", "AX在庫数", "内訳在庫", "＋", "－", "差数", "単価", "差額", ListHeaders.NOTE,
-                          ListHeaders.CUSTOMER_CODE, ListHeaders.ROW_TYPE, ListHeaders.ORDER})
+                          ListHeaders.CUSTOMER_CODE, ListHeaders.ROW_TYPE, ListHeaders.DETAIL_PRICE, ListHeaders.ORDER})
         For c As Integer = 0 To L_COLS - 1
             data(L_HEADER_ROW - 1, c) = headers(c)
         Next
@@ -222,9 +227,9 @@ Public NotInheritable Class StocktakingWriter
             widths.Add(8)
             widths.Add(7)
         Next
-        widths.AddRange({8.5, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24, 10, 8, 8})
+        widths.AddRange({8.5, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24, 10, 8, 10, 8})
         xl.SetColumnsWidth(widths.ToArray())
-        For Each c In {L_CUST_CODE, L_ROW_TYPE, L_ORDER}
+        For Each c In {L_CUST_CODE, L_ROW_TYPE, L_DETAIL_PRICE, L_ORDER}
             xl.SetColumnHidden(c)
         Next
 
@@ -234,7 +239,10 @@ Public NotInheritable Class StocktakingWriter
                 ' 行の色は非表示の行種別で決める（並べ替えても追従する）
                 Dim typeCol = $"INDEX(${Col(L_ROW_TYPE)}:${Col(L_ROW_TYPE)},ROW())"
                 Dim body = sh.Range(sh.Cells(L_FIRST_ROW, 1), sh.Cells(lastRow, L_NOTE))
-                Dim fcDetail = body.FormatConditions.Add(Type:=xlExpression, Formula1:=$"={typeCol}=""{ListHeaders.ROW_DETAIL}""")
+                ' 内訳は灰色。ただし共用棚の内訳行で専用欄に印があれば外す（専用棚に昇格する行）
+                Dim markCol = $"INDEX(${Col(L_MARK)}:${Col(L_MARK)},ROW())"
+                Dim fcDetail = body.FormatConditions.Add(Type:=xlExpression,
+                    Formula1:=$"=OR(AND({typeCol}=""{ListHeaders.ROW_DETAIL}"",{markCol}=""""),{typeCol}=""{ListHeaders.ROW_DEDICATED_DETAIL}"")")
                 fcDetail.Interior.Color = COLOR_DETAIL
                 Dim fcExcluded = body.FormatConditions.Add(Type:=xlExpression, Formula1:=$"={typeCol}=""{ListHeaders.ROW_EXCLUDED}""")
                 fcExcluded.Interior.Color = COLOR_EXCLUDED_BACK
@@ -282,7 +290,8 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>集計対象の行（共用棚・専用棚）</summary>
-    Private Function ListTopLine(item As StocktakingItem, b As StockBlock, row As Integer) As Object()
+    ''' <param name="details">直下の内訳行の範囲（無ければ First=0）</param>
+    Private Function ListTopLine(item As StocktakingItem, b As StockBlock, row As Integer, details As RowSpan) As Object()
         Dim line = NewListLine()
         Dim rep = b.Representative
         Dim isSingle As Boolean = b.Rows.Count = 1
@@ -298,8 +307,18 @@ Public NotInheritable Class StocktakingWriter
         line(L_REG - 1) = b.CustomerCount
         SetListShelves(line, b.Shelves)
         line(L_TOTAL - 1) = $"={QtySum(row)}"
-        line(L_BOOK - 1) = CDbl(b.Quantity)
-        line(L_PRICE - 1) = CDbl(b.UnitPrice)
+        If Not b.IsDedicated AndAlso details.First > 0 Then
+            ' 内訳行のうち専用欄に印の無い得意先だけを集計（印を付けた得意先は専用棚の行として別に計算される）
+            Dim mark = $"{Col(L_MARK)}{details.First}:{Col(L_MARK)}{details.Last}"
+            line(L_BOOK - 1) = $"=SUMIF({mark},"""",{Col(L_DETAIL)}{details.First}:{Col(L_DETAIL)}{details.Last})"
+            line(L_PRICE - 1) = $"=MAXIFS({Col(L_DETAIL_PRICE)}{details.First}:{Col(L_DETAIL_PRICE)}{details.Last},{mark},"""")"
+            ' 登録数＝印の無い得意先の数（同じ得意先の倉庫・ステータス違いは1つと数える）
+            Dim codes = $"{Col(L_CUST_CODE)}{details.First}:{Col(L_CUST_CODE)}{details.Last}"
+            line(L_REG - 1) = $"=ROUND(SUMPRODUCT(({mark}="""")/COUNTIFS({codes},{codes},{mark},{mark}&"""")),0)"
+        Else
+            line(L_BOOK - 1) = CDbl(b.Quantity)
+            line(L_PRICE - 1) = CDbl(b.UnitPrice)
+        End If
         line(L_DIFF - 1) = $"={Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row}"
         line(L_AMOUNT - 1) = $"={Col(L_DIFF)}{row}*{Col(L_PRICE)}{row}"
         line(L_CUST_CODE - 1) = If(b.IsDedicated, b.CustomerCode, rep.CustomerCode)
@@ -307,8 +326,11 @@ Public NotInheritable Class StocktakingWriter
         Return line
     End Function
 
-    ''' <summary>内訳行・対象外行（集計対象外。在庫は「内訳在庫」列に出す）</summary>
-    Private Function ListDetailLine(item As StocktakingItem, r As StockRow, no As Object, rowType As String) As Object()
+    ''' <summary>
+    ''' 内訳行・対象外行（集計対象外。在庫は「内訳在庫」列に出す）。
+    ''' 共用棚の内訳行は、専用欄に印を付けると AX在庫数・棚卸総数・差数・単価・差額が出て専用棚の行として計算される
+    ''' </summary>
+    Private Function ListDetailLine(item As StocktakingItem, r As StockRow, no As Object, rowType As String, row As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = no
         line(L_WH - 1) = r.Warehouse
@@ -318,8 +340,18 @@ Public NotInheritable Class StocktakingWriter
         line(L_NAME - 1) = item.Model
         line(L_STATUS - 1) = StatusLabel(r)
         line(L_DETAIL - 1) = CDbl(r.Quantity)
+        line(L_DETAIL_PRICE - 1) = CDbl(r.UnitPrice)
         line(L_CUST_CODE - 1) = r.CustomerCode
         line(L_ROW_TYPE - 1) = rowType
+
+        If rowType = ListHeaders.ROW_DETAIL Then
+            Dim marked = $"{Col(L_MARK)}{row}<>"""""
+            line(L_TOTAL - 1) = $"=IF({marked},{QtySum(row)},"""")"
+            line(L_BOOK - 1) = $"=IF({marked},{Col(L_DETAIL)}{row},"""")"
+            line(L_PRICE - 1) = $"=IF({marked},{Col(L_DETAIL_PRICE)}{row},"""")"
+            line(L_DIFF - 1) = $"=IF({marked},{Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row},"""")"
+            line(L_AMOUNT - 1) = $"=IF({marked},{Col(L_DIFF)}{row}*{Col(L_PRICE)}{row},"""")"
+        End If
         Return line
     End Function
 
