@@ -22,12 +22,25 @@ Public NotInheritable Class ListHeaders
     ''' <summary>非表示列。出力時の並び（並べ替え後に元へ戻す用）</summary>
     Public Const ORDER As String = "並び順"
 
-    ''' <summary>棚区分：この行の棚番が共用棚か得意先専用棚か。単独行を「専用」にするとその得意先の専用棚として読み込む</summary>
-    Public Const KIND As String = "棚区分"
-    Public Const KIND_SHARED As String = "共用"
-    Public Const KIND_DEDICATED As String = "専用"
+    ''' <summary>
+    ''' 専用欄：専用棚の行に○を出す。読み込みでは空欄以外（○・〇・◯・O・1 など何でも）を専用とみなす。
+    ''' 内訳行に入れて棚番を書けば専用棚に昇格、専用棚の行で消せば共用棚に戻す
+    ''' </summary>
+    Public Const MARK As String = "専用"
+    Public Const MARK_VALUE As String = "○"
 
-    ''' <summary>No 列：子行・2行目以降の対象外行</summary>
+    ''' <summary>非表示列。行の種類（並べ替え後も判別できるように持つ）</summary>
+    Public Const ROW_TYPE As String = "行種別"
+    ''' <summary>集計対象：共用棚の行</summary>
+    Public Const ROW_SHARED As String = "共用"
+    ''' <summary>集計対象：専用棚の行</summary>
+    Public Const ROW_DEDICATED As String = "専用"
+    ''' <summary>集計対象外：得意先別の内訳行</summary>
+    Public Const ROW_DETAIL As String = "内訳"
+    ''' <summary>集計対象外：棚卸対象外ステータスの行</summary>
+    Public Const ROW_EXCLUDED As String = "対象外"
+
+    ''' <summary>No 列：旧形式の子行（読み込みの互換用）</summary>
     Public Const CHILD_NO As String = "-"
     ''' <summary>No 列：追記用の空行</summary>
     Public Const APPEND_NO As String = "追記"

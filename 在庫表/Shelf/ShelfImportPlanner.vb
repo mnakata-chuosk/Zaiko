@@ -25,8 +25,11 @@ End Class
 ''' ・単独行 … 共用棚と得意先指定棚を合成して出力しているため（ShelfPositions.MergeSingle）、
 '''            出力時と同じ合成をやり直し、変わったセルは元のグループ・元の位置に反映する。
 '''            出力時に空いていたセルへの記入は共用棚のその位置に入れる
-''' ・単独行で棚区分が「専用」… その行の棚番をその得意先の専用棚にする（同じ位置の共用棚は外す）
-''' ・追記行 … 型式（完全一致）で特定し、空いている位置に棚番を追加する。棚区分が「専用」なら得意先短縮CDの専用棚
+''' ・共用棚の行 … 共用棚を上書き。専用欄に印（得意先が1つの場合のみ）→ その得意先の専用棚に昇格
+''' ・専用棚の行 … 専用棚を上書き。専用欄の印を消す → 共用棚に戻す（棚番は共用棚の空き位置へ）
+''' ・内訳行 … 専用欄に印＋棚番 → その得意先の専用棚に昇格。印が無ければ読み込まない
+''' ・追記行 … 型式（完全一致）で特定し、空いている位置に棚番を追加する。専用欄に印があれば得意先短縮CDの専用棚
+''' ・親行／子行／単独行 … 旧形式（行種別列の無いファイル）の互換
 ''' </remarks>
 Public Class ShelfImportPlanner
 
@@ -50,6 +53,15 @@ Public Class ShelfImportPlanner
         For Each row In file.Rows
             Try
                 Select Case row.Kind
+                    Case ShelfImportRow.RowKind.SharedTop
+                        PlanSharedTop(row)
+
+                    Case ShelfImportRow.RowKind.DedicatedTop
+                        PlanDedicatedTop(row)
+
+                    Case ShelfImportRow.RowKind.Detail
+                        PlanDetail(row)
+
                     Case ShelfImportRow.RowKind.Parent
                         Overwrite(GetGroup(row.ItemCode, "", row), row)
 
@@ -61,11 +73,7 @@ Public Class ShelfImportPlanner
                         Overwrite(GetGroup(row.ItemCode, cust.Code, row, cust), row)
 
                     Case ShelfImportRow.RowKind.SingleRow
-                        If row.IsDedicated Then
-                            PlanSingleDedicated(row)
-                        Else
-                            PlanSingle(row)
-                        End If
+                        PlanSingle(row)
 
                     Case ShelfImportRow.RowKind.Append
                         PlanAppend(row)
@@ -151,8 +159,71 @@ Public Class ShelfImportPlanner
         If hasCustGroup Then SetWork(GetGroup(row.ItemCode, cust.Code, row, cust), newCust, row.ExcelRow)
     End Sub
 
+    ''' <summary>共用棚の行：専用欄に印があれば（得意先が1つの場合のみ）その得意先の専用棚に昇格、無ければ共用棚を上書き</summary>
+    Private Sub PlanSharedTop(row As ShelfImportRow)
+        If Not row.IsMarked Then
+            Overwrite(GetGroup(row.ItemCode, "", row), row)
+            Return
+        End If
+        If row.Registered > 1 Then
+            Errors.Add($"{row.ExcelRow}行目：「{row.Model}」は得意先が複数の共用棚の行です。専用にする得意先の内訳行に印を付けてください")
+            Return
+        End If
+        PlanSingleDedicated(row)
+    End Sub
+
     ''' <summary>
-    ''' 単独行で棚区分が「専用」：この行の棚番（位置 1～列数）をその得意先の専用棚にする。
+    ''' 専用棚の行：印があればその得意先の専用棚を上書き。印が消されていれば共用棚に戻す
+    ''' （専用棚は空にし、棚番は共用棚の空いている位置へ追加。既に共用棚にある棚番は重ねない）
+    ''' </summary>
+    Private Sub PlanDedicatedTop(row As ShelfImportRow)
+        Dim cust = ResolveCustomer(row.ItemCode, row)
+        If cust Is Nothing Then Return
+        Dim custGroup = GetGroup(row.ItemCode, cust.Code, row, cust)
+
+        If row.IsMarked Then
+            Overwrite(custGroup, row)
+            Return
+        End If
+
+        ' 降格：ファイルの棚番 ＋ 表示数より後ろの専用棚を共用棚へ
+        Dim moving = row.Shelves.Where(Function(s) s <> "").Concat(Current(custGroup.Key).Where(Function(kv) kv.Key > row.Shelves.Count).Select(Function(kv) kv.Value)).ToList()
+        Dim sharedGroup = GetGroup(row.ItemCode, "", row)
+        SetWork(sharedGroup, AddToFreePositions(Current(sharedGroup.Key), moving), row.ExcelRow)
+        SetWork(custGroup, New SortedDictionary(Of Integer, String), row.ExcelRow)
+    End Sub
+
+    ''' <summary>内訳行：専用欄に印があり棚番が書かれていれば、その得意先の専用棚に昇格する</summary>
+    Private Sub PlanDetail(row As ShelfImportRow)
+        If Not row.IsMarked Then
+            If row.HasShelf Then Errors.Add($"{row.ExcelRow}行目：内訳行の棚番は読み込みません（専用棚にする場合は専用欄に印を付けてください）")
+            Return
+        End If
+        If Not row.HasShelf Then
+            Errors.Add($"{row.ExcelRow}行目：「{row.Model}」を専用棚にするには棚番を書いてください")
+            Return
+        End If
+        Dim cust = ResolveCustomer(row.ItemCode, row)
+        If cust Is Nothing Then Return
+        Overwrite(GetGroup(row.ItemCode, cust.Code, row, cust), row)
+    End Sub
+
+    ''' <summary>棚番を空いている最小の位置に追加する（既にある棚番は重ねない）</summary>
+    Private Shared Function AddToFreePositions(current As SortedDictionary(Of Integer, String), shelves As IEnumerable(Of String)) As SortedDictionary(Of Integer, String)
+        Dim map As New SortedDictionary(Of Integer, String)(current)
+        For Each s In shelves
+            If map.ContainsValue(s) Then Continue For
+            Dim pos As Integer = 1
+            While map.ContainsKey(pos)
+                pos += 1
+            End While
+            map(pos) = s
+        Next
+        Return map
+    End Function
+
+    ''' <summary>
+    ''' 共用棚の行（得意先が1つ）・旧形式の単独行で専用にする：この行の棚番（位置 1～列数）をその得意先の専用棚にする。
     ''' 単独行の棚番は共用棚として出力しているため、同じ位置の共用棚は外す（専用棚へ移す）。
     ''' </summary>
     Private Sub PlanSingleDedicated(row As ShelfImportRow)
@@ -198,10 +269,10 @@ Public Class ShelfImportPlanner
         row.ItemCode = itemCode
         row.Model = items(itemCode)
 
-        ' 棚区分の列があれば「専用」のときだけ得意先専用棚、無い古いファイルは得意先が書いてあれば専用棚
-        Dim dedicated = If(row.ShelfKind Is Nothing, row.CustomerShortCode <> "", row.IsDedicated)
+        ' 専用欄があれば印があるときだけ得意先専用棚、無い古いファイルは得意先が書いてあれば専用棚
+        Dim dedicated = If(row.HasMarkColumn, row.IsMarked, row.CustomerShortCode <> "")
         If dedicated AndAlso row.CustomerShortCode = "" Then
-            Errors.Add($"{row.ExcelRow}行目：追記行「{row.Model}」は棚区分が専用ですが得意先がありません")
+            Errors.Add($"{row.ExcelRow}行目：追記行「{row.Model}」は専用ですが得意先がありません")
             Return
         End If
 
@@ -212,16 +283,7 @@ Public Class ShelfImportPlanner
         End If
 
         Dim g = GetGroup(itemCode, If(cust?.Code, ""), row, cust)
-        Dim map As New SortedDictionary(Of Integer, String)(Current(g.Key))
-        For Each s In row.Shelves.Where(Function(x) x <> "")
-            If map.ContainsValue(s) Then Continue For
-            Dim pos As Integer = 1
-            While map.ContainsKey(pos)
-                pos += 1
-            End While
-            map(pos) = s
-        Next
-        SetWork(g, map, row.ExcelRow)
+        SetWork(g, AddToFreePositions(Current(g.Key), row.Shelves.Where(Function(x) x <> "")), row.ExcelRow)
     End Sub
 
     Private Sub SetWork(g As ShelfGroup, map As SortedDictionary(Of Integer, String), excelRow As Integer)

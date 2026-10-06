@@ -75,11 +75,12 @@ Public Class FrmMain
                 .OfficeHeader = $"{officeCode}：{Chuo.OfficeNMList(officeIndex)}営業所",
                 .ShelfSlots = CInt(CboShelfSlots.SelectedItem),
                 .ShowStockOnPrintSheet = ChkPrintStock.Checked,
+                .ShowBreakdown = ChkBreakdown.Checked,
                 .OutputAt = DateTime.Now
             }
             StocktakingWriter.Write(items, opt)
 
-            App.AddCount(APP_NAME, "棚卸表", $"{officeCode} 棚番：{opt.ShelfSlots} 印刷用在庫数：{If(ChkPrintStock.Checked, "○", "☓")}")
+            App.AddCount(APP_NAME, "棚卸表", $"{officeCode} 棚番：{opt.ShelfSlots} 印刷用在庫数：{If(ChkPrintStock.Checked, "○", "☓")} 内訳：{If(ChkBreakdown.Checked, "○", "☓")}")
 
         Catch ex As Exception
             MsgBox(ex.Message, MsgBoxStyle.Exclamation, APP_NAME)

@@ -16,6 +16,8 @@ Public Class StocktakingOptions
     Public Property OfficeHeader As String
     ''' <summary>[棚番・数量] の組数（一覧・印刷用で共通）</summary>
     Public Property ShelfSlots As Integer = DEFAULT_SHELF_SLOTS
+    ''' <summary>得意先別の内訳行を出すか（旧アプリの「重複明細表示」）</summary>
+    Public Property ShowBreakdown As Boolean
     ''' <summary>印刷用シートに帳簿在庫数の列を出すか</summary>
     Public Property ShowStockOnPrintSheet As Boolean
     ''' <summary>出力日時（在庫の基準時点として表示）</summary>

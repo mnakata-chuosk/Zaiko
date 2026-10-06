@@ -8,11 +8,17 @@ Imports ChuoUtils
 ''' </summary>
 Public Class ShelfImportRow
     Public Enum RowKind
-        ''' <summary>単独行（共用棚＋得意先指定棚が混在）</summary>
+        ''' <summary>共用棚の行（集計対象）</summary>
+        SharedTop
+        ''' <summary>専用棚の行（集計対象）</summary>
+        DedicatedTop
+        ''' <summary>内訳行（集計対象外。専用欄に印＋棚番で専用棚に昇格）</summary>
+        Detail
+        ''' <summary>旧形式：単独行（共用棚＋得意先指定棚が混在）</summary>
         SingleRow
-        ''' <summary>親行（共用棚）</summary>
+        ''' <summary>旧形式：親行（共用棚）</summary>
         Parent
-        ''' <summary>子行（得意先指定棚）</summary>
+        ''' <summary>旧形式：子行（得意先指定棚）</summary>
         Child
         ''' <summary>追記行（型式・得意先は手入力）</summary>
         Append
@@ -25,15 +31,12 @@ Public Class ShelfImportRow
     ''' <summary>得意先CD（非表示列。古いファイルや追記行は空）</summary>
     Public Property CustomerCode As String = ""
     Public Property CustomerShortCode As String = ""
-    ''' <summary>棚区分の値（列が無い古いファイルは Nothing）</summary>
-    Public Property ShelfKind As String
-
-    ''' <summary>棚区分が「専用」か</summary>
-    Public ReadOnly Property IsDedicated As Boolean
-        Get
-            Return ShelfKind = ListHeaders.KIND_DEDICATED
-        End Get
-    End Property
+    ''' <summary>専用欄の列があるファイルか</summary>
+    Public Property HasMarkColumn As Boolean
+    ''' <summary>専用欄に何か入っているか（○・〇・O・1 など何でも専用とみなす）</summary>
+    Public Property IsMarked As Boolean
+    ''' <summary>登録数（得意先の数）</summary>
+    Public Property Registered As Integer
     ''' <summary>棚番（棚番1 から順。空欄は空文字のまま＝位置を保つ）</summary>
     Public ReadOnly Property Shelves As New List(Of String)
 
@@ -126,7 +129,8 @@ Public NotInheritable Class ShelfExcelImporter
                 .Model = cell(r, ListHeaders.MODEL),
                 .CustomerCode = cell(r, ListHeaders.CUSTOMER_CODE),
                 .CustomerShortCode = cell(r, ListHeaders.CUSTOMER),
-                .ShelfKind = If(cols.ContainsKey(ListHeaders.KIND), cell(r, ListHeaders.KIND), Nothing)
+                .HasMarkColumn = cols.ContainsKey(ListHeaders.MARK),
+                .IsMarked = cell(r, ListHeaders.MARK) <> ""
             }
             For Each c In shelfCols
                 row.Shelves.Add(Text(values(r, c)))
@@ -134,12 +138,21 @@ Public NotInheritable Class ShelfExcelImporter
 
             Dim registered As Integer = 0
             Integer.TryParse(cell(r, ListHeaders.REGISTERED), registered)
+            row.Registered = registered
 
             If noText = ListHeaders.APPEND_NO Then
                 If row.Model = "" AndAlso Not row.HasShelf Then Continue For
                 row.Kind = ShelfImportRow.RowKind.Append
             ElseIf row.ItemCode = "" Then
                 Continue For
+            ElseIf cols.ContainsKey(ListHeaders.ROW_TYPE) Then
+                ' 現行形式：非表示の行種別で判定（並べ替えても崩れない）
+                Select Case cell(r, ListHeaders.ROW_TYPE)
+                    Case ListHeaders.ROW_SHARED : row.Kind = ShelfImportRow.RowKind.SharedTop
+                    Case ListHeaders.ROW_DEDICATED : row.Kind = ShelfImportRow.RowKind.DedicatedTop
+                    Case ListHeaders.ROW_DETAIL : row.Kind = ShelfImportRow.RowKind.Detail
+                    Case Else : Continue For   ' 対象外など
+                End Select
             ElseIf registered >= 2 OrElse (IsNumeric(noText) AndAlso row.CustomerShortCode = "" AndAlso row.CustomerCode = "") Then
                 ' 親行（共用棚）：得意先が空の番号付き行。得意先指定棚がある型式は子行が1つでも親行を出している
                 row.Kind = ShelfImportRow.RowKind.Parent

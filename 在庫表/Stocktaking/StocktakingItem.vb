@@ -1,39 +1,74 @@
-﻿''' <summary>
-''' 棚卸表の1型式分（営業所内の商品CD単位）。
-''' 棚卸対象の在庫行が2行以上なら「親行＋子行」、1行なら単独行として出力する。
+''' <summary>
+''' 棚卸表の集計単位（ブロック）。1ブロック＝集計対象の1行（＋内訳行）。
+''' ・共用棚ブロック … 得意先指定のない棚。専用棚を持たない得意先の在庫をまとめる
+''' ・専用棚ブロック … 得意先専用棚。その得意先の在庫だけ（共用棚の在庫には含めない）
+''' </summary>
+Public Class StockBlock
+    ''' <summary>通し番号（内訳行も同じ番号）</summary>
+    Public Property No As Integer
+    ''' <summary>専用棚ブロックか</summary>
+    Public Property IsDedicated As Boolean
+    ''' <summary>専用棚の得意先CD（共用棚は空）</summary>
+    Public Property CustomerCode As String = ""
+    ''' <summary>棚番（位置 → 棚番）</summary>
+    Public Property Shelves As SortedDictionary(Of Integer, String)
+    ''' <summary>このブロックの在庫行（得意先 → 倉庫 → ステータス順）</summary>
+    Public ReadOnly Property Rows As New List(Of StockRow)
+
+    ''' <summary>代表の在庫行（短縮CDが最も若い得意先）</summary>
+    Public ReadOnly Property Representative As StockRow
+        Get
+            Return Rows(0)
+        End Get
+    End Property
+
+    ''' <summary>得意先の数（登録数）</summary>
+    Public ReadOnly Property CustomerCount As Integer
+        Get
+            Return Rows.Select(Function(r) r.CustomerCode).Distinct().Count()
+        End Get
+    End Property
+
+    Public ReadOnly Property Quantity As Decimal
+        Get
+            Return Rows.Sum(Function(r) r.Quantity)
+        End Get
+    End Property
+
+    ''' <summary>単価（内訳の単価の最大値）</summary>
+    Public ReadOnly Property UnitPrice As Decimal
+        Get
+            Return Rows.Max(Function(r) r.UnitPrice)
+        End Get
+    End Property
+
+    ''' <summary>全行で値が同じならその値、異なれば代表行の値（useRepresentative=False なら空文字）</summary>
+    Public Function CommonValue(selector As Func(Of StockRow, String), Optional useRepresentative As Boolean = False) As String
+        Dim values = Rows.Select(selector).Distinct().ToList()
+        If values.Count = 1 Then Return values(0)
+        Return If(useRepresentative, selector(Representative), "")
+    End Function
+End Class
+
+''' <summary>
+''' 棚卸表の1型式分（営業所内の商品CD単位）
 ''' </summary>
 Public Class StocktakingItem
 
-    ''' <summary>通し番号（一覧シート・印刷用シート共通）</summary>
-    Public Property No As Integer
     Public Property ItemCode As String
     Public Property Model As String
 
     ''' <summary>棚卸対象の在庫行（得意先 → 倉庫 → ステータス順）</summary>
     Public ReadOnly Property Targets As New List(Of StockRow)
-    ''' <summary>棚卸対象外ステータスの在庫行（一覧シートのみ参考表示）</summary>
+    ''' <summary>棚卸対象外ステータスの在庫行（内訳を出すときだけ参考表示）</summary>
     Public ReadOnly Property Excluded As New List(Of StockRow)
     ''' <summary>得意先指定なしの棚番（位置 → 棚番。位置は帳票出力優先順、空き位置は詰めない）</summary>
     Public ReadOnly Property SharedShelves As New SortedDictionary(Of Integer, String)
     ''' <summary>得意先指定ありの棚番（キー: 得意先CD、値: 位置 → 棚番）</summary>
     Public ReadOnly Property CustomerShelves As New Dictionary(Of String, SortedDictionary(Of Integer, String))
 
-    ''' <summary>
-    ''' 親行＋子行で出力するか。棚卸対象が2行以上、または1行でも得意先指定棚がある場合
-    ''' （共用棚＝親行、得意先指定棚＝子行で区別できるようにするため）
-    ''' </summary>
-    Public ReadOnly Property IsGroup As Boolean
-        Get
-            Return Targets.Count >= 2 OrElse (Targets.Count = 1 AndAlso ShelvesOf(Targets(0)).Count > 0)
-        End Get
-    End Property
-
-    ''' <summary>棚卸対象の在庫行の合計</summary>
-    Public ReadOnly Property TargetQuantity As Decimal
-        Get
-            Return Targets.Sum(Function(r) r.Quantity)
-        End Get
-    End Property
+    ''' <summary>集計単位（共用棚 → 専用棚の順）</summary>
+    Public ReadOnly Property Blocks As New List(Of StockBlock)
 
     ''' <summary>
     ''' 並び替え用の仕入先（棚卸対象の在庫行で最小の仕入先短縮CD。対象が無ければ全行から）
@@ -45,28 +80,29 @@ Public Class StocktakingItem
         End Get
     End Property
 
-    ''' <summary>全行で値が同じならその値、異なれば空文字</summary>
-    Public Function CommonValue(selector As Func(Of StockRow, String)) As String
-        Dim values = Targets.Select(selector).Distinct().ToList()
-        Return If(values.Count = 1, values(0), "")
-    End Function
+    ''' <summary>
+    ''' 在庫行を集計単位に分ける。専用棚（棚番あり）を持つ得意先はその得意先だけの専用棚ブロック、
+    ''' それ以外の得意先は共用棚ブロックにまとめる。
+    ''' </summary>
+    Public Sub BuildBlocks()
+        Blocks.Clear()
+        Dim dedicated = Targets.Select(Function(r) r.CustomerCode).Distinct() _
+                               .Where(Function(c) CustomerShelves.ContainsKey(c) AndAlso CustomerShelves(c).Count > 0) _
+                               .ToList()
 
-    ''' <summary>得意先指定の棚番（無ければ空）</summary>
-    Public Function ShelvesOf(row As StockRow) As SortedDictionary(Of Integer, String)
-        Dim map As SortedDictionary(Of Integer, String) = Nothing
-        If CustomerShelves.TryGetValue(row.CustomerCode, map) Then Return map
-        Return New SortedDictionary(Of Integer, String)
-    End Function
+        Dim sharedRows = Targets.Where(Function(r) Not dedicated.Contains(r.CustomerCode)).ToList()
+        If sharedRows.Count > 0 Then
+            Dim b As New StockBlock With {.IsDedicated = False, .Shelves = SharedShelves}
+            b.Rows.AddRange(sharedRows)
+            Blocks.Add(b)
+        End If
 
-    ''' <summary>単独行で出力するときの棚番（共用棚と得意先指定棚を ShelfPositions.MergeSingle で合成）</summary>
-    Public Function SingleRowShelves() As SortedDictionary(Of Integer, String)
-        Dim custMap = If(Targets.Count = 1 AndAlso CustomerShelves.ContainsKey(Targets(0).CustomerCode), CustomerShelves(Targets(0).CustomerCode), Nothing)
-        Dim result As New SortedDictionary(Of Integer, String)
-        For Each kv In ShelfPositions.MergeSingle(SharedShelves, custMap)
-            result(kv.Key) = kv.Value.Shelf
+        For Each code In dedicated
+            Dim b As New StockBlock With {.IsDedicated = True, .CustomerCode = code, .Shelves = CustomerShelves(code)}
+            b.Rows.AddRange(Targets.Where(Function(r) r.CustomerCode = code))
+            Blocks.Add(b)
         Next
-        Return result
-    End Function
+    End Sub
 
 End Class
 
@@ -76,7 +112,7 @@ End Class
 Public Module StocktakingBuilder
 
     ''' <summary>
-    ''' 商品CD単位にまとめ、仕入先 → 型式の順に並べて通し番号を振る
+    ''' 商品CD単位にまとめて集計単位に分け、仕入先 → 型式の順に並べて集計単位ごとに通し番号を振る
     ''' </summary>
     Public Function Build(rows As List(Of StockRow), shelves As List(Of ShelfRow)) As List(Of StocktakingItem)
         Dim shelfLookup = shelves.ToLookup(Function(s) s.ItemCode)
@@ -110,6 +146,7 @@ Public Module StocktakingBuilder
                 If byCustomer.Key <> "" Then item.CustomerShelves(byCustomer.Key) = map
             Next
 
+            item.BuildBlocks()
             items.Add(item)
         Next
 
@@ -120,8 +157,12 @@ Public Module StocktakingBuilder
                           .ThenBy(Function(i) i.ItemCode, StringComparer.Ordinal) _
                           .ToList()
 
-        For i As Integer = 0 To sorted.Count - 1
-            sorted(i).No = i + 1
+        Dim no As Integer = 0
+        For Each item In sorted
+            For Each b In item.Blocks
+                no += 1
+                b.No = no
+            Next
         Next
 
         Return sorted
