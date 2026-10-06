@@ -25,6 +25,15 @@ Public Class ShelfImportRow
     ''' <summary>得意先CD（非表示列。古いファイルや追記行は空）</summary>
     Public Property CustomerCode As String = ""
     Public Property CustomerShortCode As String = ""
+    ''' <summary>棚区分の値（列が無い古いファイルは Nothing）</summary>
+    Public Property ShelfKind As String
+
+    ''' <summary>棚区分が「専用」か</summary>
+    Public ReadOnly Property IsDedicated As Boolean
+        Get
+            Return ShelfKind = ListHeaders.KIND_DEDICATED
+        End Get
+    End Property
     ''' <summary>棚番（棚番1 から順。空欄は空文字のまま＝位置を保つ）</summary>
     Public ReadOnly Property Shelves As New List(Of String)
 
@@ -116,7 +125,8 @@ Public NotInheritable Class ShelfExcelImporter
                 .ItemCode = cell(r, ListHeaders.ITEM_CODE),
                 .Model = cell(r, ListHeaders.MODEL),
                 .CustomerCode = cell(r, ListHeaders.CUSTOMER_CODE),
-                .CustomerShortCode = cell(r, ListHeaders.CUSTOMER)
+                .CustomerShortCode = cell(r, ListHeaders.CUSTOMER),
+                .ShelfKind = If(cols.ContainsKey(ListHeaders.KIND), cell(r, ListHeaders.KIND), Nothing)
             }
             For Each c In shelfCols
                 row.Shelves.Add(Text(values(r, c)))

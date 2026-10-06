@@ -25,7 +25,8 @@ End Class
 ''' ・単独行 … 共用棚と得意先指定棚を合成して出力しているため（ShelfPositions.MergeSingle）、
 '''            出力時と同じ合成をやり直し、変わったセルは元のグループ・元の位置に反映する。
 '''            出力時に空いていたセルへの記入は共用棚のその位置に入れる
-''' ・追記行 … 型式（完全一致）と得意先短縮CDから特定し、空いている位置に棚番を追加する
+''' ・単独行で棚区分が「専用」… その行の棚番をその得意先の専用棚にする（同じ位置の共用棚は外す）
+''' ・追記行 … 型式（完全一致）で特定し、空いている位置に棚番を追加する。棚区分が「専用」なら得意先短縮CDの専用棚
 ''' </remarks>
 Public Class ShelfImportPlanner
 
@@ -60,7 +61,11 @@ Public Class ShelfImportPlanner
                         Overwrite(GetGroup(row.ItemCode, cust.Code, row, cust), row)
 
                     Case ShelfImportRow.RowKind.SingleRow
-                        PlanSingle(row)
+                        If row.IsDedicated Then
+                            PlanSingleDedicated(row)
+                        Else
+                            PlanSingle(row)
+                        End If
 
                     Case ShelfImportRow.RowKind.Append
                         PlanAppend(row)
@@ -146,6 +151,24 @@ Public Class ShelfImportPlanner
         If hasCustGroup Then SetWork(GetGroup(row.ItemCode, cust.Code, row, cust), newCust, row.ExcelRow)
     End Sub
 
+    ''' <summary>
+    ''' 単独行で棚区分が「専用」：この行の棚番（位置 1～列数）をその得意先の専用棚にする。
+    ''' 単独行の棚番は共用棚として出力しているため、同じ位置の共用棚は外す（専用棚へ移す）。
+    ''' </summary>
+    Private Sub PlanSingleDedicated(row As ShelfImportRow)
+        Dim cust = ResolveCustomer(row.ItemCode, row)
+        If cust Is Nothing Then Return
+
+        Dim sharedGroup = GetGroup(row.ItemCode, "", row)
+        Dim newShared As New SortedDictionary(Of Integer, String)(Current(sharedGroup.Key))
+        For pos As Integer = 1 To row.Shelves.Count
+            newShared.Remove(pos)
+        Next
+        SetWork(sharedGroup, newShared, row.ExcelRow)
+
+        Overwrite(GetGroup(row.ItemCode, cust.Code, row, cust), row)
+    End Sub
+
     ''' <summary>追記行：型式と得意先短縮CDから特定し、空いている位置に棚番を追加する</summary>
     Private Sub PlanAppend(row As ShelfImportRow)
         If row.Model = "" Then
@@ -175,8 +198,15 @@ Public Class ShelfImportPlanner
         row.ItemCode = itemCode
         row.Model = items(itemCode)
 
+        ' 棚区分の列があれば「専用」のときだけ得意先専用棚、無い古いファイルは得意先が書いてあれば専用棚
+        Dim dedicated = If(row.ShelfKind Is Nothing, row.CustomerShortCode <> "", row.IsDedicated)
+        If dedicated AndAlso row.CustomerShortCode = "" Then
+            Errors.Add($"{row.ExcelRow}行目：追記行「{row.Model}」は棚区分が専用ですが得意先がありません")
+            Return
+        End If
+
         Dim cust As ShelfRepository.Customer = Nothing
-        If row.CustomerShortCode <> "" Then
+        If dedicated Then
             cust = ResolveCustomer(itemCode, row)
             If cust Is Nothing Then Return
         End If

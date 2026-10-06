@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 一覧シートの見出し・目印の文字列。
 ''' 出力（StocktakingWriter）と棚番の Excel 読み込み（ShelfExcelImporter）で共通に使う。
 ''' </summary>
@@ -19,6 +19,13 @@ Public NotInheritable Class ListHeaders
     Public Const NOTE As String = "備考"
     ''' <summary>非表示列。AXIS 内部の得意先CD（短縮CDは一意でないため）</summary>
     Public Const CUSTOMER_CODE As String = "得意先CD"
+    ''' <summary>非表示列。出力時の並び（並べ替え後に元へ戻す用）</summary>
+    Public Const ORDER As String = "並び順"
+
+    ''' <summary>棚区分：この行の棚番が共用棚か得意先専用棚か。単独行を「専用」にするとその得意先の専用棚として読み込む</summary>
+    Public Const KIND As String = "棚区分"
+    Public Const KIND_SHARED As String = "共用"
+    Public Const KIND_DEDICATED As String = "専用"
 
     ''' <summary>No 列：子行・2行目以降の対象外行</summary>
     Public Const CHILD_NO As String = "-"
