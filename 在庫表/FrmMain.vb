@@ -1,4 +1,4 @@
-Imports ChuoUtils
+﻿Imports ChuoUtils
 
 Public Class FrmMain
 
@@ -23,13 +23,13 @@ Public Class FrmMain
         InitShelfSlots()
     End Sub
 
-    ''' <summary>棚番表示数（[棚番・数量] の組数）を初期化する。既定は最大</summary>
+    ''' <summary>棚番表示数（[棚番・数量] の組数）を初期化する</summary>
     Private Sub InitShelfSlots()
         CboShelfSlots.Items.Clear()
         For n As Integer = StocktakingOptions.MIN_SHELF_SLOTS To StocktakingOptions.MAX_SHELF_SLOTS
             CboShelfSlots.Items.Add(n)
         Next
-        CboShelfSlots.SelectedIndex = CboShelfSlots.Items.Count - 1
+        CboShelfSlots.SelectedItem = StocktakingOptions.DEFAULT_SHELF_SLOTS
     End Sub
 
     ''' <summary>営業所コンボを初期化し、担当者の初期値営業所を選択する</summary>

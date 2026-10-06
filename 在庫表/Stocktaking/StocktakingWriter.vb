@@ -119,25 +119,29 @@ Public NotInheritable Class StocktakingWriter
         Dim childSpans As New List(Of RowSpan)     ' 子行（灰色・振分数入力）
         Dim excludedSpans As New List(Of RowSpan)  ' 棚卸対象外
         Dim groupSpans As New List(Of RowSpan)     ' 行グループ（各型式の2行目以降）
+        Dim inputSpans As New List(Of RowSpan)     ' 振分数の入力欄（子行が2つ以上のとき）
 
         Dim rowNo As Integer = L_FIRST_ROW
         For Each item In items
             Dim itemFirstRow As Integer = rowNo
 
-            If item.Targets.Count = 1 Then
-                lines.Add(ListSingleLine(item, rowNo))
-                rowNo += 1
-
-            ElseIf item.IsGroup Then
+            If item.IsGroup Then
                 Dim parentRow As Integer = rowNo
                 Dim lastChildRow As Integer = parentRow + item.Targets.Count
                 lines.Add(ListParentLine(item, parentRow, lastChildRow))
                 rowNo += 1
+                ' 子行が1つなら共用棚の数量はその得意先の分なので振分数は自動（入力欄にしない）
+                Dim autoAllocRow As Integer = If(item.Targets.Count = 1, parentRow, 0)
                 For Each r In item.Targets
-                    lines.Add(ListChildLine(item, r, rowNo))
+                    lines.Add(ListChildLine(item, r, rowNo, autoAllocRow))
                     rowNo += 1
                 Next
                 childSpans.Add(New RowSpan(parentRow + 1, lastChildRow))
+                If autoAllocRow = 0 Then inputSpans.Add(New RowSpan(parentRow + 1, lastChildRow))
+
+            ElseIf item.Targets.Count = 1 Then
+                lines.Add(ListSingleLine(item, rowNo))
+                rowNo += 1
             End If
 
             If item.Excluded.Count > 0 Then
@@ -217,6 +221,8 @@ Public NotInheritable Class StocktakingWriter
         ' 子行・振分数入力欄・棚卸対象外
         For Each s In childSpans
             xl.SetCellsBackColor(s.First, 1, s.Last, L_COLS, COLOR_CHILD)
+        Next
+        For Each s In inputSpans
             xl.SetCellsBackColor(s.First, L_ALLOC, s.Last, L_ALLOC, COLOR_INPUT)
         Next
         For Each s In excludedSpans
@@ -227,10 +233,10 @@ Public NotInheritable Class StocktakingWriter
         Dim sheetName As String = xl.SheetName
         xl.WithSheet(sheetName,
             Sub(sh)
-                ' 親行の振分残が 0 以外なら赤（登録数 2 以上の行が親行）
+                ' 親行の振分残が 0 以外なら赤（No が数値で得意先が空の行が親行）
                 Dim rng = sh.Range(sh.Cells(L_FIRST_ROW, L_ALLOC), sh.Cells(lastRow, L_ALLOC))
                 Dim fc = rng.FormatConditions.Add(Type:=xlExpression,
-                    Formula1:=$"=AND(INDEX(${Col(L_REG)}:${Col(L_REG)},ROW())>=2,ROUND(INDEX(${Col(L_ALLOC)}:${Col(L_ALLOC)},ROW()),4)<>0)")
+                    Formula1:=$"=AND(ISNUMBER(INDEX(${Col(L_NO)}:${Col(L_NO)},ROW())),INDEX(${Col(L_CUST)}:${Col(L_CUST)},ROW())="""",ROUND(INDEX(${Col(L_ALLOC)}:${Col(L_ALLOC)},ROW()),4)<>0)")
                 fc.Interior.Color = COLOR_ALERT
 
                 ' 追記行の枠
@@ -333,11 +339,13 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>子行（振分数＋得意先指定棚の数量が棚卸総数）</summary>
-    Private Function ListChildLine(item As StocktakingItem, r As StockRow, row As Integer) As Object()
+    ''' <param name="autoAllocRow">0 以外なら振分数をこの行（親行）の棚卸総数にする（子行が1つのとき）</param>
+    Private Function ListChildLine(item As StocktakingItem, r As StockRow, row As Integer, autoAllocRow As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = ListHeaders.CHILD_NO
         SetListRowInfo(line, item, r)
         SetListShelves(line, item.ShelvesOf(r))
+        If autoAllocRow > 0 Then line(L_ALLOC - 1) = $"={Col(L_TOTAL)}{autoAllocRow}"
         line(L_TOTAL - 1) = $"={Col(L_ALLOC)}{row}+{QtySum(row)}"
         SetDiffFormulas(line, row)
         Return line
@@ -402,13 +410,7 @@ Public NotInheritable Class StocktakingWriter
 
         Dim rowNo As Integer = 2
         For Each item In items
-            If item.Targets.Count = 1 Then
-                Dim r = item.Targets(0)
-                lines.Add(newLine(item.No, r.Warehouse, r.CustomerShortCode, r.SupplierShortCode,
-                                  PrintName(item, r), 1, r.Quantity, item.SingleRowShelves()))
-                rowNo += 1
-
-            ElseIf item.IsGroup Then
+            If item.IsGroup Then
                 lines.Add(newLine(item.No, item.CommonValue(Function(x) x.Warehouse), "",
                                   item.CommonValue(Function(x) x.SupplierShortCode),
                                   item.Model, item.Targets.Count, item.TargetQuantity, item.SharedShelves))
@@ -420,6 +422,12 @@ Public NotInheritable Class StocktakingWriter
                     rowNo += 1
                 Next
                 childSpans.Add(New RowSpan(firstChild, rowNo - 1))
+
+            ElseIf item.Targets.Count = 1 Then
+                Dim r = item.Targets(0)
+                lines.Add(newLine(item.No, r.Warehouse, r.CustomerShortCode, r.SupplierShortCode,
+                                  PrintName(item, r), 1, r.Quantity, item.SingleRowShelves()))
+                rowNo += 1
             End If
         Next
 

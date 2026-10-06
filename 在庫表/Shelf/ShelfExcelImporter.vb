@@ -130,7 +130,8 @@ Public NotInheritable Class ShelfExcelImporter
                 row.Kind = ShelfImportRow.RowKind.Append
             ElseIf row.ItemCode = "" Then
                 Continue For
-            ElseIf registered >= 2 Then
+            ElseIf registered >= 2 OrElse (IsNumeric(noText) AndAlso row.CustomerShortCode = "" AndAlso row.CustomerCode = "") Then
+                ' 親行（共用棚）：得意先が空の番号付き行。得意先指定棚がある型式は子行が1つでも親行を出している
                 row.Kind = ShelfImportRow.RowKind.Parent
                 row.CustomerCode = ""
                 row.CustomerShortCode = ""

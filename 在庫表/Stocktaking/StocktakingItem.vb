@@ -18,10 +18,13 @@ Public Class StocktakingItem
     ''' <summary>得意先指定ありの棚番（キー: 得意先CD、値: 位置 → 棚番）</summary>
     Public ReadOnly Property CustomerShelves As New Dictionary(Of String, SortedDictionary(Of Integer, String))
 
-    ''' <summary>親行＋子行で出力するか（棚卸対象が2行以上）</summary>
+    ''' <summary>
+    ''' 親行＋子行で出力するか。棚卸対象が2行以上、または1行でも得意先指定棚がある場合
+    ''' （共用棚＝親行、得意先指定棚＝子行で区別できるようにするため）
+    ''' </summary>
     Public ReadOnly Property IsGroup As Boolean
         Get
-            Return Targets.Count >= 2
+            Return Targets.Count >= 2 OrElse (Targets.Count = 1 AndAlso ShelvesOf(Targets(0)).Count > 0)
         End Get
     End Property
 
