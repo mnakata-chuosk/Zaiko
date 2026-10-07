@@ -55,6 +55,7 @@ Public NotInheritable Class StocktakingWriter
     Private Shared ReadOnly COLOR_DETAIL As Integer = RGB(217, 217, 217)
     Private Shared ReadOnly COLOR_EXCLUDED_BACK As Integer = RGB(242, 242, 242)
     Private Shared ReadOnly COLOR_EXCLUDED_FONT As Integer = RGB(128, 128, 128)
+    Private Shared ReadOnly COLOR_NG As Integer = RGB(255, 199, 206)
 
     ''' <summary>連続した行範囲</summary>
     Private Structure RowSpan
@@ -249,6 +250,13 @@ Public NotInheritable Class StocktakingWriter
                 Dim fcExcluded = body.FormatConditions.Add(Type:=xlExpression, Formula1:=$"={typeCol}=""{ListHeaders.ROW_EXCLUDED}""")
                 fcExcluded.Interior.Color = COLOR_EXCLUDED_BACK
                 fcExcluded.Font.Color = COLOR_EXCLUDED_FONT
+
+                ' 得意先が複数（登録数2以上）の共用棚の行は専用にできない：専用欄に書いたら赤で知らせる
+                Dim markCells = sh.Range(sh.Cells(L_FIRST_ROW, L_MARK), sh.Cells(lastRow, L_MARK))
+                Dim fcNg = markCells.FormatConditions.Add(Type:=xlExpression,
+                    Formula1:=$"=AND({typeCol}=""{ListHeaders.ROW_SHARED}"",{markCol}<>"""",N(INDEX(${Col(L_REG)}:${Col(L_REG)},ROW()))>=2)")
+                fcNg.Interior.Color = COLOR_NG
+                fcNg.SetFirstPriority()
 
                 ' 追記行の枠
                 sh.Range(sh.Cells(firstAppendRow, 1), sh.Cells(lastRow, L_NOTE)).Borders.LineStyle = xlContinuous

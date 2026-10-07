@@ -168,7 +168,7 @@ Public Class ShelfImportPlanner
             Return
         End If
         If row.Registered > 1 Then
-            Errors.Add($"{row.ExcelRow}行目：「{row.Model}」は得意先が複数の共用棚の行です。専用にする得意先の内訳行に印を付けてください")
+            Errors.Add($"{row.ExcelRow}行目：「{row.Model}」は得意先が複数（{row.Registered}社）の共用棚のため専用にできません。「得意先内訳を表示」で出力し、専用にする得意先の内訳行に印を付けてください")
             Return
         End If
         PlanSingleDedicated(row)
