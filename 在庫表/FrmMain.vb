@@ -8,6 +8,7 @@ Public Class FrmMain
 
     Private Sub FrmMain_Load(sender As Object, e As EventArgs) Handles Me.Load
         Me.AddVersion
+        Mbar.AddManual()   ' ヘルプ → 操作説明書（\\192.168.10.20\etc\VS_App\操作説明書\在庫表.html）
         Me.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
 
         If Not USelector.EnsureSignedIn(Me) Then
