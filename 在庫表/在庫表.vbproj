@@ -28,7 +28,7 @@
     <TargetCulture>ja</TargetCulture>
     <ProductName>在庫表</ProductName>
     <PublisherName>中央精工</PublisherName>
-    <ApplicationRevision>0</ApplicationRevision>
+    <ApplicationRevision>1</ApplicationRevision>
     <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <CreateDesktopShortcut>true</CreateDesktopShortcut>
