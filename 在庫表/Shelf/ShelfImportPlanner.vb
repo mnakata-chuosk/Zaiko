@@ -40,6 +40,8 @@ Public Class ShelfImportPlanner
     Private ReadOnly _rowsByKey As New Dictionary(Of String, SortedSet(Of Integer))
     Private ReadOnly _customerCache As New Dictionary(Of String, List(Of ShelfRepository.Customer))
     Private ReadOnly _modelCache As New Dictionary(Of String, Dictionary(Of String, String))
+    ''' <summary>営業所の得意先一覧（取扱得意先に無い短縮CDの逆引き用。必要になったときに読む）</summary>
+    Private _officeCustomers As List(Of ShelfRepository.Customer)
 
     ''' <summary>反映できなかった行（ファイルの行番号付きメッセージ）</summary>
     Public ReadOnly Property Errors As New List(Of String)
@@ -342,12 +344,17 @@ Public Class ShelfImportPlanner
             End If
         Else
             found = customers.Where(Function(c) c.ShortCode = row.CustomerShortCode).ToList()
+            If found.Count = 0 AndAlso row.CustomerShortCode <> "" Then
+                ' 取扱得意先に無い得意先：営業所の得意先一覧から短縮CDで逆引きする
+                If _officeCustomers Is Nothing Then _officeCustomers = ShelfRepository.LoadOfficeCustomers(_officeCode)
+                found = _officeCustomers.Where(Function(c) c.ShortCode = row.CustomerShortCode).GroupBy(Function(c) c.Code).Select(Function(g) g.First()).ToList()
+            End If
         End If
 
         If found.Count = 1 Then Return found(0)
         If Not quiet Then
             Errors.Add($"{row.ExcelRow}行目：「{row.Model}」の得意先「{row.CustomerShortCode}」を特定できません" &
-                       If(found.Count > 1, "（同じ短縮CDが複数）", "（取扱得意先にありません）"))
+                       If(found.Count > 1, "（同じ短縮CDが複数）", "（営業所の得意先にありません）"))
         End If
         Return Nothing
     End Function

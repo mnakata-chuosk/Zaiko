@@ -46,7 +46,6 @@ Public NotInheritable Class StocktakingWriter
     Private ReadOnly L_NOTE As Integer                          ' 備考
     Private ReadOnly L_CUST_CODE As Integer                     ' 得意先CD（非表示。AXIS内部コード）
     Private ReadOnly L_ROW_TYPE As Integer                      ' 行種別（非表示。共用／専用／内訳／専用内訳／対象外）
-    Private ReadOnly L_DETAIL_PRICE As Integer                  ' 内訳単価（非表示。内訳行を専用にしたときの単価・共用棚の行の単価の元）
     Private ReadOnly L_ORDER As Integer                         ' 並び順（非表示。出力時の並びに戻す用）
     Private ReadOnly L_COLS As Integer
     Private Const L_HEADER_ROW As Integer = 2
@@ -81,8 +80,7 @@ Public NotInheritable Class StocktakingWriter
         L_NOTE = baseCol + 8
         L_CUST_CODE = baseCol + 9
         L_ROW_TYPE = baseCol + 10
-        L_DETAIL_PRICE = baseCol + 11
-        L_ORDER = baseCol + 12
+        L_ORDER = baseCol + 11
         L_COLS = L_ORDER
     End Sub
 
@@ -110,6 +108,8 @@ Public NotInheritable Class StocktakingWriter
             Else
                 xl.Calculate()
                 xl.SetHome()
+                ' 開いた人の Excel で数式（専用の印による昇格の計算など）が自動で再計算されるように
+                xl.Calculation = xlCalculationAutomatic
                 xl.SaveAs(savePath)
                 xl.Dispose()
             End If
@@ -190,7 +190,7 @@ Public NotInheritable Class StocktakingWriter
             headers.Add("数量")
         Next
         headers.AddRange({"棚卸総数", "AX在庫数", "内訳在庫", "＋", "－", "差数", "単価", "差額", ListHeaders.NOTE,
-                          ListHeaders.CUSTOMER_CODE, ListHeaders.ROW_TYPE, ListHeaders.DETAIL_PRICE, ListHeaders.ORDER})
+                          ListHeaders.CUSTOMER_CODE, ListHeaders.ROW_TYPE, ListHeaders.ORDER})
         For c As Integer = 0 To L_COLS - 1
             data(L_HEADER_ROW - 1, c) = headers(c)
         Next
@@ -202,7 +202,9 @@ Public NotInheritable Class StocktakingWriter
         Next
 
         ' 表示形式（コードの先頭ゼロを残すため値の設定前に行う）
-        xl.SetColumnsNumberFormat(L_WH, L_MARK, nfString)
+        ' 得意先・得意先CD は共用棚の行で数式（代表得意先）を使うため標準書式のまま、値は ' 付きの文字列で書く
+        xl.SetColumnNumberFormat(L_WH, nfString)
+        xl.SetColumnsNumberFormat(L_SUP, L_MARK, nfString)
         For i As Integer = 0 To SLOTS - 1
             xl.SetColumnNumberFormat(L_SHELF + i * 2, nfString)
             xl.SetColumnNumberFormat(L_SHELF + i * 2 + 1, nfInteger)
@@ -210,7 +212,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetColumnsNumberFormat(L_TOTAL, L_DIFF, nfInteger)
         xl.SetColumnNumberFormat(L_PRICE, If(HasFraction(items), nfDecimal2, nfInteger))
         xl.SetColumnNumberFormat(L_AMOUNT, nfInteger)
-        xl.SetColumnsNumberFormat(L_CUST_CODE, L_ROW_TYPE, nfString)
+        xl.SetColumnNumberFormat(L_ROW_TYPE, nfString)
 
         xl.SetValue(data)
 
@@ -227,9 +229,9 @@ Public NotInheritable Class StocktakingWriter
             widths.Add(8)
             widths.Add(7)
         Next
-        widths.AddRange({8.5, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24, 10, 8, 10, 8})
+        widths.AddRange({8.5, 8.5, 8.5, 7, 7, 7.5, 10, 12, 24, 10, 8, 8})
         xl.SetColumnsWidth(widths.ToArray())
-        For Each c In {L_CUST_CODE, L_ROW_TYPE, L_DETAIL_PRICE, L_ORDER}
+        For Each c In {L_CUST_CODE, L_ROW_TYPE, L_ORDER}
             xl.SetColumnHidden(c)
         Next
 
@@ -298,7 +300,7 @@ Public NotInheritable Class StocktakingWriter
 
         line(L_NO - 1) = b.No
         line(L_WH - 1) = If(isSingle, rep.Warehouse, b.CommonValue(Function(r) r.Warehouse))
-        line(L_CUST - 1) = rep.CustomerShortCode                          ' 代表得意先（短縮CDが最も若い得意先）
+        line(L_CUST - 1) = Txt(rep.CustomerShortCode)                     ' 代表得意先（短縮CDが最も若い得意先）
         line(L_SUP - 1) = If(isSingle, rep.SupplierShortCode, b.CommonValue(Function(r) r.SupplierShortCode, useRepresentative:=True))
         line(L_ITEM - 1) = item.ItemCode
         line(L_NAME - 1) = item.Model
@@ -311,9 +313,12 @@ Public NotInheritable Class StocktakingWriter
             ' 内訳行のうち専用欄に印の無い得意先だけを集計（印を付けた得意先は専用棚の行として別に計算される）
             Dim mark = $"{Col(L_MARK)}{details.First}:{Col(L_MARK)}{details.Last}"
             line(L_BOOK - 1) = $"=SUMIF({mark},"""",{Col(L_DETAIL)}{details.First}:{Col(L_DETAIL)}{details.Last})"
-            line(L_PRICE - 1) = $"=MAXIFS({Col(L_DETAIL_PRICE)}{details.First}:{Col(L_DETAIL_PRICE)}{details.Last},{mark},"""")"
+            line(L_PRICE - 1) = $"=MAXIFS({Col(L_PRICE)}{details.First}:{Col(L_PRICE)}{details.Last},{mark},"""")"
             ' 登録数＝印の無い得意先の数（同じ得意先の倉庫・ステータス違いは1つと数える）
             Dim codes = $"{Col(L_CUST_CODE)}{details.First}:{Col(L_CUST_CODE)}{details.Last}"
+            ' 代表得意先＝印の無い最初の内訳行（内訳は短縮CD順）。内訳を専用にしたら次の得意先に替わる
+            line(L_CUST - 1) = FirstUnmarked(L_CUST, details, mark)
+            line(L_CUST_CODE - 1) = FirstUnmarked(L_CUST_CODE, details, mark)
             line(L_REG - 1) = $"=ROUND(SUMPRODUCT(({mark}="""")/COUNTIFS({codes},{codes},{mark},{mark}&"""")),0)"
         Else
             line(L_BOOK - 1) = CDbl(b.Quantity)
@@ -321,38 +326,47 @@ Public NotInheritable Class StocktakingWriter
         End If
         line(L_DIFF - 1) = $"={Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row}"
         line(L_AMOUNT - 1) = $"={Col(L_DIFF)}{row}*{Col(L_PRICE)}{row}"
-        line(L_CUST_CODE - 1) = If(b.IsDedicated, b.CustomerCode, rep.CustomerCode)
+        If line(L_CUST_CODE - 1) Is Nothing Then line(L_CUST_CODE - 1) = Txt(If(b.IsDedicated, b.CustomerCode, rep.CustomerCode))
         line(L_ROW_TYPE - 1) = If(b.IsDedicated, ListHeaders.ROW_DEDICATED, ListHeaders.ROW_SHARED)
         Return line
     End Function
 
     ''' <summary>
     ''' 内訳行・対象外行（集計対象外。在庫は「内訳在庫」列に出す）。
-    ''' 共用棚の内訳行は、専用欄に印を付けると AX在庫数・棚卸総数・差数・単価・差額が出て専用棚の行として計算される
+    ''' 単価は常に表示。共用棚の内訳行は、専用欄に印を付けると AX在庫数・棚卸総数・差数・差額が出て専用棚の行として計算される
     ''' </summary>
     Private Function ListDetailLine(item As StocktakingItem, r As StockRow, no As Object, rowType As String, row As Integer) As Object()
         Dim line = NewListLine()
         line(L_NO - 1) = no
         line(L_WH - 1) = r.Warehouse
-        line(L_CUST - 1) = r.CustomerShortCode
+        line(L_CUST - 1) = Txt(r.CustomerShortCode)
         line(L_SUP - 1) = r.SupplierShortCode
         line(L_ITEM - 1) = item.ItemCode
         line(L_NAME - 1) = item.Model
         line(L_STATUS - 1) = StatusLabel(r)
         line(L_DETAIL - 1) = CDbl(r.Quantity)
-        line(L_DETAIL_PRICE - 1) = CDbl(r.UnitPrice)
-        line(L_CUST_CODE - 1) = r.CustomerCode
+        line(L_PRICE - 1) = CDbl(r.UnitPrice)                              ' 内訳行にも単価を表示（集計しない列）
+        line(L_CUST_CODE - 1) = Txt(r.CustomerCode)
         line(L_ROW_TYPE - 1) = rowType
 
         If rowType = ListHeaders.ROW_DETAIL Then
             Dim marked = $"{Col(L_MARK)}{row}<>"""""
             line(L_TOTAL - 1) = $"=IF({marked},{QtySum(row)},"""")"
             line(L_BOOK - 1) = $"=IF({marked},{Col(L_DETAIL)}{row},"""")"
-            line(L_PRICE - 1) = $"=IF({marked},{Col(L_DETAIL_PRICE)}{row},"""")"
             line(L_DIFF - 1) = $"=IF({marked},{Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row},"""")"
             line(L_AMOUNT - 1) = $"=IF({marked},{Col(L_DIFF)}{row}*{Col(L_PRICE)}{row},"""")"
         End If
         Return line
+    End Function
+
+    ''' <summary>標準書式の列に先頭ゼロ付きのコードを文字列として書く（' を付ける）</summary>
+    Private Shared Function Txt(value As String) As Object
+        Return If(String.IsNullOrEmpty(value), Nothing, "'" & value)
+    End Function
+
+    ''' <summary>内訳行のうち専用欄が空の最初の行の値を返す数式</summary>
+    Private Function FirstUnmarked(column As Integer, details As RowSpan, markRange As String) As String
+        Return $"=IFERROR(INDEX({Col(column)}{details.First}:{Col(column)}{details.Last},MATCH(TRUE,INDEX({markRange}="""",0),0)),"""")"
     End Function
 
     ''' <summary>棚番を位置どおりの記入欄へ（表示数より後ろの位置にある棚番は備考に件数を出す）</summary>

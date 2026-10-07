@@ -21,8 +21,6 @@ Public NotInheritable Class ListHeaders
     Public Const CUSTOMER_CODE As String = "得意先CD"
     ''' <summary>非表示列。出力時の並び（並べ替え後に元へ戻す用）</summary>
     Public Const ORDER As String = "並び順"
-    ''' <summary>非表示列。内訳行の単価（専用にしたときの単価・共用棚の行の単価の元）</summary>
-    Public Const DETAIL_PRICE As String = "内訳単価"
 
     ''' <summary>
     ''' 専用欄：専用棚の行に○を出す。読み込みでは空欄以外（○・〇・◯・O・1 など何でも）を専用とみなす。
