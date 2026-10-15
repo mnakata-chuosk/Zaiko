@@ -268,6 +268,8 @@ Public NotInheritable Class StocktakingWriter
         For Each s In groupSpans
             xl.SetRowsGroup(s.First, s.Last)
         Next
+        ' Excel は並べ替え範囲の先頭行がグループの親でないとグループを無視して並べ替えるため、明細全体を外側のグループで囲む
+        If groupSpans.Count > 0 Then xl.SetRowsGroup(L_FIRST_ROW, lastRow)
 
         ' 商品CD と ＋/－ は折りたたみ
         xl.SetColumnGroup(L_ITEM)
@@ -531,6 +533,8 @@ Public NotInheritable Class StocktakingWriter
         For Each s In detailSpans
             xl.SetRowsGroup(s.First, s.Last)
         Next
+        ' 一覧シートと同じく、明細全体を外側のグループで囲む（先頭行に内訳がなくてもグループごと並べ替わるように）
+        If detailSpans.Count > 0 Then xl.SetRowsGroup(2, lastRow)
 
         xl.SetAutoFilter(1, 1, lastRow, pCols)
 
