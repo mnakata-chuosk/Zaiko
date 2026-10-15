@@ -526,6 +526,12 @@ Public NotInheritable Class StocktakingWriter
             xl.SetCellsBackColor(s.First, 1, s.Last, pCols, COLOR_DETAIL)
         Next
 
+        ' 内訳行を親の行のグループにする（閉じて並べ替えると親と一緒に動く）
+        xl.WithSheet(PRINT_SHEET_NAME, Sub(sh) sh.Outline.SummaryRow = 0)   ' xlAbove
+        For Each s In detailSpans
+            xl.SetRowsGroup(s.First, s.Last)
+        Next
+
         xl.SetAutoFilter(1, 1, lastRow, pCols)
 
         Dim headerText As String = opt.OfficeHeader
