@@ -13,7 +13,9 @@ Public NotInheritable Class ListHeaders
     Public Const NO As String = "No"
     Public Const CUSTOMER As String = "得意先"
     Public Const ITEM_CODE As String = "商品CD"
-    Public Const MODEL As String = "品名"
+    Public Const MODEL As String = "型式"
+    ''' <summary>旧版の見出し（読み込みの互換用）</summary>
+    Public Const LEGACY_MODEL As String = "品名"
     Public Const REGISTERED As String = "登録数"
     Public Const SHELF As String = "棚番"
     Public Const NOTE As String = "備考"

@@ -551,7 +551,7 @@ Public NotInheritable Class StocktakingWriter
         Next
 
         Dim data(lastRow - 1, pCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "倉庫", "得意先", "仕入先", "品名", "専用", "ステータス", "登録数"}
+        Dim headers As New List(Of String) From {"No", "倉庫", "得意先", "仕入先", ListHeaders.MODEL, "専用", "ステータス", "登録数"}
         If pStock > 0 Then headers.Add("在庫数")
         For i As Integer = 1 To SLOTS
             headers.Add("棚番")
@@ -576,7 +576,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetValue(data)
 
         ' 列幅：旧アプリと同じ総幅（記入欄 97/105）から倉庫列の分を引き、棚番:数量 = 1:3 で配分。
-        ' 専用・ステータス列の分は品名列から割く（記入欄の幅は変えない）
+        ' 専用・ステータス列の分は型式列から割く（記入欄の幅は変えない）
         Dim widths As New List(Of Double) From {3, 4, 4, 4, 13, 2.5, 3.5, 3}
         If pStock > 0 Then widths.Add(8)
         Dim slotWidth As Double = If(pStock > 0, 93.0, 101.0) / SLOTS
@@ -615,7 +615,7 @@ Public NotInheritable Class StocktakingWriter
                 all.RowHeight = 37
                 all.ShrinkToFit = True                       ' 文字サイズをセル幅に合わせる
                 all.Borders.LineStyle = xlContinuous         ' 格子
-                sh.Columns(P_NAME).WrapText = True           ' 品名はセル幅で折り返し
+                sh.Columns(P_NAME).WrapText = True           ' 型式はセル幅で折り返し
 
                 With sh.PageSetup
                     .Orientation = xlLandscape
@@ -644,7 +644,7 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ''' <summary>
     ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
-    ''' 縦向き印刷。並べ替え・絞り込みは現場でオートフィルタを使う（棚番順で出力）。
+    ''' 列は他のシートと同じ 倉庫 → 得意先 → 仕入先 → 型式 の順、得意先名・仕入先名は備考の後ろ。縦向き印刷。並べ替え・絞り込みは現場でオートフィルタを使う（棚番順で出力）。
     ''' 数えた数は一覧シートの同じ位置（棚番1～）の数量欄に書き写す
     ''' </summary>
     Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
@@ -653,17 +653,17 @@ Public NotInheritable Class StocktakingWriter
         Const S_POS As Integer = 2
         Const S_NO As Integer = 3
         Const S_WH As Integer = 4
-        Const S_NAME As Integer = 5
-        Const S_MARK As Integer = 6
-        Const S_STATUS As Integer = 7
-        Const S_CUST As Integer = 8
-        Const S_CUST_NAME As Integer = 9
-        Const S_SUP As Integer = 10
-        Const S_SUP_NAME As Integer = 11
-        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 12, 0)
-        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 13, 12)
+        Const S_CUST As Integer = 5
+        Const S_SUP As Integer = 6
+        Const S_NAME As Integer = 7
+        Const S_MARK As Integer = 8
+        Const S_STATUS As Integer = 9
+        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 10, 0)
+        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 11, 10)
         Dim sNote As Integer = sQty + 1
-        Dim sOrder As Integer = sNote + 1                         ' 並び順（非表示）
+        Dim sCustName As Integer = sNote + 1                      ' 得意先名・仕入先名は備考の後ろ
+        Dim sSupName As Integer = sNote + 2
+        Dim sOrder As Integer = sSupName + 1                      ' 並び順（非表示）
         Dim sCols As Integer = sOrder
 
         ' 棚番 → No → 位置 の順（棚番なしは最後）
@@ -688,9 +688,9 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"棚番", "位置", "No", "倉庫", "品名", "専用", "ステータス", "得意先", "得意先名", "仕入先", "仕入先名"}
+        Dim headers As New List(Of String) From {"棚番", "位置", "No", "倉庫", "得意先", "仕入先", ListHeaders.MODEL, "専用", "ステータス"}
         If sStock > 0 Then headers.Add("在庫数")
-        headers.AddRange({"数量", ListHeaders.NOTE, ListHeaders.ORDER})
+        headers.AddRange({"数量", ListHeaders.NOTE, "得意先名", "仕入先名", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
             data(0, c) = headers(c)
         Next
@@ -710,10 +710,10 @@ Public NotInheritable Class StocktakingWriter
             data(r, S_STATUS - 1) = b.CommonValue(Function(x) StatusLabel(x))
             data(r, S_CUST - 1) = rep.CustomerShortCode
             ' 共用棚に複数の得意先がいるときは代表得意先＋「他n」
-            data(r, S_CUST_NAME - 1) = If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName)
+            data(r, sCustName - 1) = If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName)
             Dim sup = b.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True)
             data(r, S_SUP - 1) = sup
-            data(r, S_SUP_NAME - 1) = b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault()
+            data(r, sSupName - 1) = b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault()
             If sStock > 0 Then data(r, sStock - 1) = CDbl(b.Quantity)
             data(r, sOrder - 1) = r
         Next
@@ -724,14 +724,15 @@ Public NotInheritable Class StocktakingWriter
         Next
 
         xl.SetColumnsNumberFormat(S_SHELF, S_SHELF, nfString)
-        xl.SetColumnsNumberFormat(S_WH, S_SUP_NAME, nfString)
+        xl.SetColumnsNumberFormat(S_WH, S_STATUS, nfString)
+        xl.SetColumnsNumberFormat(sCustName, sSupName, nfString)
         If sStock > 0 Then xl.SetColumnNumberFormat(sStock, nfInteger)
 
         xl.SetValue(data)
 
-        Dim widths As New List(Of Double) From {10, 3, 4, 4, 24, 2.5, 4, 4, 11, 4, 11}
+        Dim widths As New List(Of Double) From {10, 3, 4, 4, 4, 4, 24, 2.5, 4}
         If sStock > 0 Then widths.Add(7)
-        widths.AddRange({9, 10, 8})
+        widths.AddRange({9, 10, 11, 11, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 

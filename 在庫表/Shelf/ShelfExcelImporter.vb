@@ -108,6 +108,10 @@ Public NotInheritable Class ShelfExcelImporter
                 cols.Add(h, c)
             End If
         Next
+        ' 旧版は型式の見出しが「品名」
+        If Not cols.ContainsKey(ListHeaders.MODEL) AndAlso cols.ContainsKey(ListHeaders.LEGACY_MODEL) Then
+            cols(ListHeaders.MODEL) = cols(ListHeaders.LEGACY_MODEL)
+        End If
         For Each required In {ListHeaders.NO, ListHeaders.ITEM_CODE, ListHeaders.MODEL, ListHeaders.CUSTOMER, ListHeaders.REGISTERED}
             If Not cols.ContainsKey(required) Then Throw New InvalidDataException($"見出し「{required}」が見つかりません。")
         Next
