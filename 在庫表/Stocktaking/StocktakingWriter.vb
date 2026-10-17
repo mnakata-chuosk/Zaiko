@@ -126,9 +126,19 @@ Public NotInheritable Class StocktakingWriter
         End Try
     End Sub
 
-    ''' <summary>印刷用シートで内訳行を出すブロックか（設定がオンで、印刷対象の在庫行が2行以上）</summary>
-    Private Shared Function HasPrintDetail(b As StockBlock, opt As StocktakingOptions) As Boolean
-        Return opt.ShowBreakdown AndAlso b.Rows.Count >= 2
+    ''' <summary>
+    ''' 印刷用シートの内訳行（印刷対象の在庫だけ）。
+    ''' 得意先内訳を表示するなら得意先 × 倉庫 × ステータス別、しないならステータス別に合算。1行にしかならないときは出さない
+    ''' </summary>
+    Private Shared Function PrintDetailRows(b As StockBlock, opt As StocktakingOptions) As List(Of StockRow)
+        Dim result As List(Of StockRow)
+        If opt.ShowBreakdown Then
+            result = b.Rows.ToList()
+        Else
+            result = b.Rows.GroupBy(Function(r) r.StatusCode).OrderBy(Function(g) g.Key, StringComparer.Ordinal).Select(Function(g) MergeRows(g.ToList())).ToList()
+        End If
+        If result.Count <= 1 Then result.Clear()
+        Return result
     End Function
 
     ''' <summary>一覧シートの内訳行1行分</summary>
@@ -526,9 +536,10 @@ Public NotInheritable Class StocktakingWriter
                                   b.CustomerCount, b.Quantity, b.Shelves))
                 rowNo += 1
 
-                If HasPrintDetail(b, opt) Then
+                Dim printDetails = PrintDetailRows(b, opt)
+                If printDetails.Count > 0 Then
                     Dim first As Integer = rowNo
-                    For Each r In b.Rows
+                    For Each r In printDetails
                         lines.Add(newLine(b.No, r.Warehouse, r.CustomerShortCode, r.SupplierShortCode,
                                           item.Model, Nothing, StatusLabel(r), Nothing, r.Quantity, Nothing))
                         rowNo += 1
