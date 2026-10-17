@@ -13,7 +13,7 @@ Public NotInheritable Class StocktakingLoader
     ''' ・FT_在庫数明細取得(GETDATE(),'1') を 倉庫×得意先×商品CD×ステータス で合算（通貨・単価違いの行をまとめる）
     ''' ・在庫数 0 と在庫管理区分 '1' 以外は除外
     ''' ・単価は最新締の t締在庫実績明細.最終仕入単価（円）。NULL/0 の場合は現在庫（在庫数&gt;0 の単価行）の円貨単価の最大値
-    ''' ・棚卸表出力区分は APP DB の s在庫表ステータス。未登録のステータスは '1'（載せる）
+    ''' ・棚卸表出力区分は APP DB の s在庫表ステータス（'0'＝印刷対象外）。未登録のステータスは '1'（載せる）
     ''' </summary>
     Private Const STOCK_SQL As String = "
 SET NOCOUNT ON;
@@ -39,7 +39,9 @@ WITH 在庫 AS (
 SELECT z.商品CD, z.倉庫区分, z.得意先CD, z.ステータス区分, z.在庫数,
        ISNULL(m.型式, '') AS 型式,
        ISNULL(tk.短縮CD, '') AS 得意先短縮CD,
+       ISNULL(tk.略称, ISNULL(tk.取引先名, '')) AS 得意先名,
        ISNULL(sh.短縮CD, '') AS 仕入先短縮CD,
+       ISNULL(sh.略称, ISNULL(sh.取引先名, '')) AS 仕入先名,
        ISNULL(st.名称, '') AS ステータス名,
        ISNULL(sf.棚卸表出力区分, '1') AS 棚卸表出力区分,
        CASE WHEN ISNULL(j.最終仕入単価, 0) <> 0 THEN j.最終仕入単価 ELSE ISNULL(p.単価, 0) END AS 単価,
@@ -80,7 +82,9 @@ ORDER BY 商品CD, ISNULL(得意先CD, ''), ISNULL(帳票出力優先順, 999999
                 .Warehouse = Str(row("倉庫区分")),
                 .CustomerCode = Str(row("得意先CD")),
                 .CustomerShortCode = Str(row("得意先短縮CD")),
+                .CustomerName = Str(row("得意先名")),
                 .SupplierShortCode = Str(row("仕入先短縮CD")),
+                .SupplierName = Str(row("仕入先名")),
                 .StatusCode = Str(row("ステータス区分")),
                 .StatusName = Str(row("ステータス名")),
                 .IsCountTarget = Str(row("棚卸表出力区分")) = "1",

@@ -12,41 +12,80 @@ Public Class StockBlock
     Public Property CustomerCode As String = ""
     ''' <summary>棚番（位置 → 棚番）</summary>
     Public Property Shelves As SortedDictionary(Of Integer, String)
-    ''' <summary>このブロックの在庫行（得意先 → 倉庫 → ステータス順）</summary>
+    ''' <summary>このブロックの印刷対象の在庫行（棚で数える。得意先 → 倉庫 → ステータス順）</summary>
     Public ReadOnly Property Rows As New List(Of StockRow)
+    ''' <summary>印刷対象外ステータスの在庫行（棚に無く、保管先に確認して一覧シートに数を入れる）</summary>
+    Public ReadOnly Property OffShelfRows As New List(Of StockRow)
+
+    ''' <summary>全ステータスの在庫行（印刷対象 → 印刷対象外の順）</summary>
+    Public ReadOnly Property AllRows As IEnumerable(Of StockRow)
+        Get
+            Return Rows.Concat(OffShelfRows)
+        End Get
+    End Property
+
+    ''' <summary>印刷用シート・棚番別シートに載せるか（印刷対象の在庫があるか）</summary>
+    Public ReadOnly Property HasPrintRows As Boolean
+        Get
+            Return Rows.Count > 0
+        End Get
+    End Property
+
+    ''' <summary>表示に使う在庫行（印刷対象があればそれ、無ければ印刷対象外）</summary>
+    Private ReadOnly Property DisplayRows As List(Of StockRow)
+        Get
+            Return If(Rows.Count > 0, Rows, OffShelfRows)
+        End Get
+    End Property
 
     ''' <summary>代表の在庫行（短縮CDが最も若い得意先）</summary>
     Public ReadOnly Property Representative As StockRow
         Get
-            Return Rows(0)
+            Return DisplayRows(0)
         End Get
     End Property
 
-    ''' <summary>得意先の数（登録数）</summary>
+    ''' <summary>得意先の数（登録数。棚を共用している得意先の数なので印刷対象の在庫で数える）</summary>
     Public ReadOnly Property CustomerCount As Integer
         Get
-            Return Rows.Select(Function(r) r.CustomerCode).Distinct().Count()
+            Return DisplayRows.Select(Function(r) r.CustomerCode).Distinct().Count()
         End Get
     End Property
 
+    ''' <summary>印刷対象の在庫数（棚にあるはずの数）</summary>
     Public ReadOnly Property Quantity As Decimal
         Get
             Return Rows.Sum(Function(r) r.Quantity)
         End Get
     End Property
 
-    ''' <summary>単価（内訳の単価の最大値）</summary>
-    Public ReadOnly Property UnitPrice As Decimal
+    ''' <summary>全ステータスの在庫数（一覧シートの AX在庫数）</summary>
+    Public ReadOnly Property TotalQuantity As Decimal
         Get
-            Return Rows.Max(Function(r) r.UnitPrice)
+            Return AllRows.Sum(Function(r) r.Quantity)
         End Get
     End Property
 
-    ''' <summary>全行で値が同じならその値、異なれば代表行の値（useRepresentative=False なら空文字）</summary>
+    ''' <summary>単価（内訳の単価の最大値）</summary>
+    Public ReadOnly Property UnitPrice As Decimal
+        Get
+            Return AllRows.Max(Function(r) r.UnitPrice)
+        End Get
+    End Property
+
+    ''' <summary>表示行で値が同じならその値、異なれば代表行の値（useRepresentative=False なら空文字）</summary>
     Public Function CommonValue(selector As Func(Of StockRow, String), Optional useRepresentative As Boolean = False) As String
-        Dim values = Rows.Select(selector).Distinct().ToList()
-        If values.Count = 1 Then Return values(0)
-        Return If(useRepresentative, selector(Representative), "")
+        Return CommonValueOf(DisplayRows, selector, If(useRepresentative, selector(Representative), ""))
+    End Function
+
+    ''' <summary>全ステータスの行で値が同じならその値、異なれば空文字</summary>
+    Public Function CommonValueAll(selector As Func(Of StockRow, String)) As String
+        Return CommonValueOf(AllRows, selector, "")
+    End Function
+
+    Friend Shared Function CommonValueOf(rows As IEnumerable(Of StockRow), selector As Func(Of StockRow, String), otherwise As String) As String
+        Dim values = rows.Select(selector).Distinct().ToList()
+        Return If(values.Count = 1, values(0), otherwise)
     End Function
 End Class
 
@@ -58,9 +97,9 @@ Public Class StocktakingItem
     Public Property ItemCode As String
     Public Property Model As String
 
-    ''' <summary>棚卸対象の在庫行（得意先 → 倉庫 → ステータス順）</summary>
+    ''' <summary>印刷対象の在庫行（得意先 → 倉庫 → ステータス順）</summary>
     Public ReadOnly Property Targets As New List(Of StockRow)
-    ''' <summary>棚卸対象外ステータスの在庫行（内訳を出すときだけ参考表示）</summary>
+    ''' <summary>印刷対象外ステータスの在庫行（集計行には合算し、保管先に確認した数を一覧シートに入れる）</summary>
     Public ReadOnly Property Excluded As New List(Of StockRow)
     ''' <summary>得意先指定なしの棚番（位置 → 棚番。位置は帳票出力優先順、空き位置は詰めない）</summary>
     Public ReadOnly Property SharedShelves As New SortedDictionary(Of Integer, String)
@@ -71,7 +110,7 @@ Public Class StocktakingItem
     Public ReadOnly Property Blocks As New List(Of StockBlock)
 
     ''' <summary>
-    ''' 並び替え用の仕入先（棚卸対象の在庫行で最小の仕入先短縮CD。対象が無ければ全行から）
+    ''' 並び替え用の仕入先（印刷対象の在庫行で最小の仕入先短縮CD。対象が無ければ印刷対象外から）
     ''' </summary>
     Public ReadOnly Property SortSupplier As String
         Get
@@ -82,24 +121,23 @@ Public Class StocktakingItem
 
     ''' <summary>
     ''' 在庫行を集計単位に分ける。専用棚（棚番あり）を持つ得意先はその得意先だけの専用棚ブロック、
-    ''' それ以外の得意先は共用棚ブロックにまとめる。
+    ''' それ以外の得意先は共用棚ブロックにまとめる。印刷対象外の在庫も同じ規則で得意先のブロックに入れる。
     ''' </summary>
     Public Sub BuildBlocks()
         Blocks.Clear()
-        Dim dedicated = Targets.Select(Function(r) r.CustomerCode).Distinct() _
+        Dim dedicated = Targets.Concat(Excluded).Select(Function(r) r.CustomerCode).Distinct() _
                                .Where(Function(c) CustomerShelves.ContainsKey(c) AndAlso CustomerShelves(c).Count > 0) _
                                .ToList()
 
-        Dim sharedRows = Targets.Where(Function(r) Not dedicated.Contains(r.CustomerCode)).ToList()
-        If sharedRows.Count > 0 Then
-            Dim b As New StockBlock With {.IsDedicated = False, .Shelves = SharedShelves}
-            b.Rows.AddRange(sharedRows)
-            Blocks.Add(b)
-        End If
+        Dim sharedBlock As New StockBlock With {.IsDedicated = False, .Shelves = SharedShelves}
+        sharedBlock.Rows.AddRange(Targets.Where(Function(r) Not dedicated.Contains(r.CustomerCode)))
+        sharedBlock.OffShelfRows.AddRange(Excluded.Where(Function(r) Not dedicated.Contains(r.CustomerCode)))
+        If sharedBlock.AllRows.Any() Then Blocks.Add(sharedBlock)
 
         For Each code In dedicated
             Dim b As New StockBlock With {.IsDedicated = True, .CustomerCode = code, .Shelves = CustomerShelves(code)}
             b.Rows.AddRange(Targets.Where(Function(r) r.CustomerCode = code))
+            b.OffShelfRows.AddRange(Excluded.Where(Function(r) r.CustomerCode = code))
             Blocks.Add(b)
         Next
     End Sub

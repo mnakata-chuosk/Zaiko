@@ -39,13 +39,17 @@ Public NotInheritable Class ListHeaders
     Public Const ROW_DETAIL As String = "内訳"
     ''' <summary>集計対象外：専用棚の行の下の内訳行（参考表示のみ）</summary>
     Public Const ROW_DEDICATED_DETAIL As String = "専用内訳"
-    ''' <summary>集計対象外：棚卸対象外ステータスの行</summary>
-    Public Const ROW_EXCLUDED As String = "対象外"
+    ''' <summary>集計対象外：内訳表示オフ時のステータス別の内訳行（参考表示のみ）</summary>
+    Public Const ROW_STATUS As String = "ステータス内訳"
+    ''' <summary>印刷対象外ステータスの内訳行。棚卸総数の欄に保管先で確認した数を入れ、集計行の棚卸総数に足す</summary>
+    Public Const ROW_EXCLUDED As String = "印刷対象外"
 
     ''' <summary>No 列：旧形式の子行（読み込みの互換用）</summary>
     Public Const CHILD_NO As String = "-"
     ''' <summary>No 列：追記用の空行</summary>
     Public Const APPEND_NO As String = "追記"
-    ''' <summary>備考列：棚卸対象外ステータスの行</summary>
-    Public Const EXCLUDED_NOTE As String = "棚卸対象外"
+    ''' <summary>備考列：印刷対象外ステータスの行</summary>
+    Public Const EXCLUDED_NOTE As String = "印刷対象外"
+    ''' <summary>備考列：旧版の出力（読み込みの互換用）</summary>
+    Public Const LEGACY_EXCLUDED_NOTE As String = "棚卸対象外"
 End Class

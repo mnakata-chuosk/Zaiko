@@ -12,13 +12,17 @@ Public Class StockRow
     Public Property CustomerCode As String
     ''' <summary>得意先短縮CD（表示用）</summary>
     Public Property CustomerShortCode As String
+    ''' <summary>得意先の略称（無ければ取引先名）</summary>
+    Public Property CustomerName As String
     ''' <summary>標準仕入先の短縮CD（表示用）</summary>
     Public Property SupplierShortCode As String
+    ''' <summary>標準仕入先の略称（無ければ取引先名）</summary>
+    Public Property SupplierName As String
     ''' <summary>ステータス区分（通常は空文字）</summary>
     Public Property StatusCode As String
     ''' <summary>ステータス名称</summary>
     Public Property StatusName As String
-    ''' <summary>棚卸表（現場記入）に載せるか。s在庫表ステータス 未登録は True</summary>
+    ''' <summary>印刷用シート（現場記入）に載せるか。s在庫表ステータス 未登録は True。False は印刷対象外（保管先に確認して一覧に数を入れる）</summary>
     Public Property IsCountTarget As Boolean
     ''' <summary>帳簿在庫数（出力時点）</summary>
     Public Property Quantity As Decimal

@@ -121,7 +121,8 @@ Public NotInheritable Class ShelfExcelImporter
 
         For r As Integer = hr + 1 To lastRow
             Dim noText As String = cell(r, ListHeaders.NO)
-            If cell(r, ListHeaders.NOTE) = ListHeaders.EXCLUDED_NOTE Then Continue For
+            Dim note As String = cell(r, ListHeaders.NOTE)
+            If note = ListHeaders.EXCLUDED_NOTE OrElse note = ListHeaders.LEGACY_EXCLUDED_NOTE Then Continue For
 
             Dim row As New ShelfImportRow With {
                 .ExcelRow = r,
@@ -151,7 +152,7 @@ Public NotInheritable Class ShelfExcelImporter
                     Case ListHeaders.ROW_SHARED : row.Kind = ShelfImportRow.RowKind.SharedTop
                     Case ListHeaders.ROW_DEDICATED : row.Kind = ShelfImportRow.RowKind.DedicatedTop
                     Case ListHeaders.ROW_DETAIL : row.Kind = ShelfImportRow.RowKind.Detail
-                    Case Else : Continue For   ' 対象外など
+                    Case Else : Continue For   ' 専用内訳・ステータス内訳・印刷対象外など
                 End Select
             ElseIf registered >= 2 OrElse (IsNumeric(noText) AndAlso row.CustomerShortCode = "" AndAlso row.CustomerCode = "") Then
                 ' 親行（共用棚）：得意先が空の番号付き行。得意先指定棚がある型式は子行が1つでも親行を出している

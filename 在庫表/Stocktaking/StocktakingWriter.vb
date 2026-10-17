@@ -4,13 +4,14 @@ Imports ChuoUtils
 Imports ChuoUtils.ExcelTools
 
 ''' <summary>
-''' 棚卸表（一覧シート・印刷用シート）を Excel に出力し、ユーザーに表示する
+''' 棚卸表（一覧シート・印刷用シート・棚番別シート）を Excel に出力し、ユーザーに表示する
 ''' </summary>
 ''' <remarks>
-''' 集計単位（StockBlock）ごとに1行（集計対象）を出す。
+''' 集計単位（StockBlock）ごとに1行（集計対象）を出す。AX在庫数は全ステータス（印刷対象外を含む）の合算。
 ''' ・共用棚の行 … 得意先は代表得意先（短縮CDが最も若い得意先）。専用棚を持たない得意先の在庫の合計
 ''' ・専用棚の行 … 「専用」欄に○。その得意先の在庫だけ（共用棚の在庫には含めない）
-''' ・内訳行（灰色・同じNo）… 得意先・倉庫・ステータス別の在庫（「内訳在庫」列）。集計対象外。出力するかは設定
+''' ・内訳行（灰色・同じNo）… 「得意先内訳を表示」なら得意先・倉庫・ステータス別、しないならステータス別の在庫（「内訳在庫」列）。集計対象外
+''' ・印刷対象外の行 … 棚に無いステータスの在庫。棚卸総数の欄に保管先で確認した数を入れ、集計行の棚卸総数に足す
 ''' 集計用の列（棚卸総数・AX在庫数・差数・単価・差額）は集計対象の行にだけ値を入れ、二重計上を防ぐ。
 ''' 両シートとも末尾に追記用の空行を設け、リスト外の現物はそこに書き込む。
 ''' </remarks>
@@ -22,6 +23,7 @@ Public NotInheritable Class StocktakingWriter
     Private Const APPEND_ROWS As Integer = 10
     Private Const APPEND_LABEL As String = ListHeaders.APPEND_NO
     Private Const PRINT_SHEET_NAME As String = "印刷用"
+    Private Const SHELF_SHEET_NAME As String = "棚番別"
 
     ' 一覧シートの列
     Private Const L_NO As Integer = 1
@@ -45,7 +47,7 @@ Public NotInheritable Class StocktakingWriter
     Private ReadOnly L_AMOUNT As Integer                        ' 差額
     Private ReadOnly L_NOTE As Integer                          ' 備考
     Private ReadOnly L_CUST_CODE As Integer                     ' 得意先CD（非表示。AXIS内部コード）
-    Private ReadOnly L_ROW_TYPE As Integer                      ' 行種別（非表示。共用／専用／内訳／専用内訳／対象外）
+    Private ReadOnly L_ROW_TYPE As Integer                      ' 行種別（非表示。共用／専用／内訳／専用内訳／ステータス内訳／印刷対象外）
     Private ReadOnly L_ORDER As Integer                         ' 並び順（非表示。出力時の並びに戻す用）
     Private ReadOnly L_COLS As Integer
     Private Const L_HEADER_ROW As Integer = 2
@@ -56,6 +58,7 @@ Public NotInheritable Class StocktakingWriter
     Private Shared ReadOnly COLOR_EXCLUDED_BACK As Integer = RGB(242, 242, 242)
     Private Shared ReadOnly COLOR_EXCLUDED_FONT As Integer = RGB(128, 128, 128)
     Private Shared ReadOnly COLOR_NG As Integer = RGB(255, 199, 206)
+    Private Shared ReadOnly COLOR_INPUT As Integer = RGB(255, 242, 204)
 
     ''' <summary>連続した行範囲</summary>
     Private Structure RowSpan
@@ -100,6 +103,9 @@ Public NotInheritable Class StocktakingWriter
             w.WritePrintSheet(xl, items, opt)
             xl.SetFreezePanes(2, 1)
 
+            xl.AddSheet(SHELF_SHEET_NAME)
+            w.WriteShelfSheet(xl, items, opt)
+
             ' Show() は最後に SetFreezePanes したシート（=先頭シート）にだけ固定を再適用するため、一覧シートを最後にする
             xl.SetSheet(1)
             xl.SetFreezePanes(L_FIRST_ROW, L_NAME + 1)
@@ -120,9 +126,64 @@ Public NotInheritable Class StocktakingWriter
         End Try
     End Sub
 
-    ''' <summary>内訳行を出すブロックか（設定がオンで、在庫行が2行以上）</summary>
-    Private Shared Function HasDetail(b As StockBlock, opt As StocktakingOptions) As Boolean
+    ''' <summary>印刷用シートで内訳行を出すブロックか（設定がオンで、印刷対象の在庫行が2行以上）</summary>
+    Private Shared Function HasPrintDetail(b As StockBlock, opt As StocktakingOptions) As Boolean
         Return opt.ShowBreakdown AndAlso b.Rows.Count >= 2
+    End Function
+
+    ''' <summary>一覧シートの内訳行1行分</summary>
+    Private Structure DetailEntry
+        Public Row As StockRow
+        Public RowType As String
+        Public Sub New(row As StockRow, rowType As String)
+            Me.Row = row
+            Me.RowType = rowType
+        End Sub
+    End Structure
+
+    ''' <summary>
+    ''' 一覧シートの集計行の下に出す内訳行。
+    ''' ・得意先内訳を表示 … 得意先 × 倉庫 × ステータス別（今までどおり）
+    ''' ・表示しない … ステータス別に合算（ステータスが2種類以上のとき）
+    ''' 印刷対象外の在庫は数を入れる欄が要るので、内訳の設定にかかわらず必ず行を出す
+    ''' </summary>
+    Private Shared Function DetailEntries(b As StockBlock, opt As StocktakingOptions) As List(Of DetailEntry)
+        Dim result As New List(Of DetailEntry)
+        Dim byStatus = Function(rows As List(Of StockRow)) rows.GroupBy(Function(r) r.StatusCode).OrderBy(Function(g) g.Key, StringComparer.Ordinal).Select(Function(g) MergeRows(g.ToList()))
+
+        If opt.ShowBreakdown Then
+            Dim printType As String = If(b.IsDedicated, ListHeaders.ROW_DEDICATED_DETAIL, ListHeaders.ROW_DETAIL)
+            result.AddRange(b.Rows.Select(Function(r) New DetailEntry(r, printType)))
+            result.AddRange(b.OffShelfRows.Select(Function(r) New DetailEntry(r, ListHeaders.ROW_EXCLUDED)))
+        Else
+            result.AddRange(byStatus(b.Rows).Select(Function(r) New DetailEntry(r, ListHeaders.ROW_STATUS)))
+            result.AddRange(byStatus(b.OffShelfRows).Select(Function(r) New DetailEntry(r, ListHeaders.ROW_EXCLUDED)))
+        End If
+
+        ' 印刷対象外が無く、内訳が1行だけなら集計行と同じなので出さない
+        If result.Count <= 1 AndAlso Not result.Any(Function(e) e.RowType = ListHeaders.ROW_EXCLUDED) Then result.Clear()
+        Return result
+    End Function
+
+    ''' <summary>同じステータスの在庫行を1行に合算する（倉庫・得意先・仕入先は全行で同じときだけ表示）</summary>
+    Private Shared Function MergeRows(rows As List(Of StockRow)) As StockRow
+        If rows.Count = 1 Then Return rows(0)
+        Dim first = rows(0)
+        Return New StockRow With {
+            .ItemCode = first.ItemCode,
+            .Model = first.Model,
+            .Warehouse = StockBlock.CommonValueOf(rows, Function(r) r.Warehouse, ""),
+            .CustomerCode = StockBlock.CommonValueOf(rows, Function(r) r.CustomerCode, ""),
+            .CustomerShortCode = StockBlock.CommonValueOf(rows, Function(r) r.CustomerShortCode, ""),
+            .CustomerName = StockBlock.CommonValueOf(rows, Function(r) r.CustomerName, ""),
+            .SupplierShortCode = StockBlock.CommonValueOf(rows, Function(r) r.SupplierShortCode, ""),
+            .SupplierName = StockBlock.CommonValueOf(rows, Function(r) r.SupplierName, ""),
+            .StatusCode = first.StatusCode,
+            .StatusName = first.StatusName,
+            .IsCountTarget = first.IsCountTarget,
+            .Quantity = rows.Sum(Function(r) r.Quantity),
+            .UnitPrice = rows.Max(Function(r) r.UnitPrice)
+        }
     End Function
 
     ' ============================================================
@@ -135,33 +196,19 @@ Public NotInheritable Class StocktakingWriter
         Dim rowNo As Integer = L_FIRST_ROW
         For Each item In items
             For Each b In item.Blocks
-                Dim topRow As Integer = rowNo
-                Dim withDetail = HasDetail(b, opt)
-                Dim details = If(withDetail, New RowSpan(topRow + 1, topRow + b.Rows.Count), New RowSpan(0, 0))
-                lines.Add(ListTopLine(item, b, rowNo, details))
+                Dim entries = DetailEntries(b, opt)
+                Dim details = If(entries.Count > 0, New RowSpan(rowNo + 1, rowNo + entries.Count), New RowSpan(0, 0))
+                ' 共用棚の内訳行（得意先別）は専用欄に印を付けるとその場で専用棚の行として計算される
+                Dim promotable As Boolean = opt.ShowBreakdown AndAlso Not b.IsDedicated AndAlso entries.Count > 0
+                Dim hasOffShelf As Boolean = entries.Any(Function(e) e.RowType = ListHeaders.ROW_EXCLUDED)
+                lines.Add(ListTopLine(item, b, rowNo, details, promotable, hasOffShelf))
                 rowNo += 1
-                If withDetail Then
-                    For Each r In b.Rows
-                        ' 共用棚の内訳行は専用欄に印を付けるとその場で専用棚の行として計算される。専用棚の内訳は参考表示のみ
-                        lines.Add(ListDetailLine(item, r, b.No, If(b.IsDedicated, ListHeaders.ROW_DEDICATED_DETAIL, ListHeaders.ROW_DETAIL), rowNo))
-                        rowNo += 1
-                    Next
-                    groupSpans.Add(details)
-                End If
-            Next
-
-            ' 棚卸対象外ステータスは内訳を出すときだけ参考表示
-            If opt.ShowBreakdown AndAlso item.Excluded.Count > 0 Then
-                Dim first As Integer = rowNo
-                Dim no As Object = If(item.Blocks.Count > 0, CObj(item.Blocks(0).No), Nothing)
-                For Each r In item.Excluded
-                    Dim line = ListDetailLine(item, r, no, ListHeaders.ROW_EXCLUDED, rowNo)
-                    line(L_NOTE - 1) = ListHeaders.EXCLUDED_NOTE
-                    lines.Add(line)
+                For Each e In entries
+                    lines.Add(ListDetailLine(item, e.Row, b.No, e.RowType, rowNo))
                     rowNo += 1
                 Next
-                If item.Blocks.Count > 0 Then groupSpans.Add(New RowSpan(first, rowNo - 1))
-            End If
+                If entries.Count > 0 Then groupSpans.Add(details)
+            Next
         Next
 
         Dim firstAppendRow As Integer = rowNo
@@ -245,11 +292,18 @@ Public NotInheritable Class StocktakingWriter
                 ' 内訳は灰色。ただし共用棚の内訳行で専用欄に印があれば外す（専用棚に昇格する行）
                 Dim markCol = $"INDEX(${Col(L_MARK)}:${Col(L_MARK)},ROW())"
                 Dim fcDetail = body.FormatConditions.Add(Type:=xlExpression,
-                    Formula1:=$"=OR(AND({typeCol}=""{ListHeaders.ROW_DETAIL}"",{markCol}=""""),{typeCol}=""{ListHeaders.ROW_DEDICATED_DETAIL}"")")
+                    Formula1:=$"=OR(AND({typeCol}=""{ListHeaders.ROW_DETAIL}"",{markCol}=""""),{typeCol}=""{ListHeaders.ROW_DEDICATED_DETAIL}"",{typeCol}=""{ListHeaders.ROW_STATUS}"")")
                 fcDetail.Interior.Color = COLOR_DETAIL
                 Dim fcExcluded = body.FormatConditions.Add(Type:=xlExpression, Formula1:=$"={typeCol}=""{ListHeaders.ROW_EXCLUDED}""")
                 fcExcluded.Interior.Color = COLOR_EXCLUDED_BACK
                 fcExcluded.Font.Color = COLOR_EXCLUDED_FONT
+
+                ' 印刷対象外の行の棚卸総数は入力欄（保管先で確認した数）
+                Dim totalCells = sh.Range(sh.Cells(L_FIRST_ROW, L_TOTAL), sh.Cells(lastRow, L_TOTAL))
+                Dim fcInput = totalCells.FormatConditions.Add(Type:=xlExpression, Formula1:=$"={typeCol}=""{ListHeaders.ROW_EXCLUDED}""")
+                fcInput.Interior.Color = COLOR_INPUT
+                fcInput.Font.Color = RGB(0, 0, 0)
+                fcInput.SetFirstPriority()
 
                 ' 得意先が複数（登録数2以上）の共用棚の行は専用にできない：専用欄に書いたら赤で知らせる
                 Dim markCells = sh.Range(sh.Cells(L_FIRST_ROW, L_MARK), sh.Cells(lastRow, L_MARK))
@@ -301,37 +355,49 @@ Public NotInheritable Class StocktakingWriter
         Return New Object(L_COLS - 1) {}
     End Function
 
-    ''' <summary>集計対象の行（共用棚・専用棚）</summary>
+    ''' <summary>集計対象の行（共用棚・専用棚）。AX在庫数は全ステータス（印刷対象外を含む）の合算</summary>
     ''' <param name="details">直下の内訳行の範囲（無ければ First=0）</param>
-    Private Function ListTopLine(item As StocktakingItem, b As StockBlock, row As Integer, details As RowSpan) As Object()
+    ''' <param name="promotable">得意先別の内訳行があり、専用欄の印で専用棚に昇格できる共用棚の行か</param>
+    ''' <param name="hasOffShelf">印刷対象外の内訳行（確認した数を入れる行）があるか</param>
+    Private Function ListTopLine(item As StocktakingItem, b As StockBlock, row As Integer, details As RowSpan,
+                                 promotable As Boolean, hasOffShelf As Boolean) As Object()
         Dim line = NewListLine()
         Dim rep = b.Representative
-        Dim isSingle As Boolean = b.Rows.Count = 1
 
         line(L_NO - 1) = b.No
-        line(L_WH - 1) = If(isSingle, rep.Warehouse, b.CommonValue(Function(r) r.Warehouse))
+        line(L_WH - 1) = b.CommonValue(Function(r) r.Warehouse)
         line(L_CUST - 1) = Txt(rep.CustomerShortCode)                     ' 代表得意先（短縮CDが最も若い得意先）
-        line(L_SUP - 1) = If(isSingle, rep.SupplierShortCode, b.CommonValue(Function(r) r.SupplierShortCode, useRepresentative:=True))
+        line(L_SUP - 1) = b.CommonValue(Function(r) r.SupplierShortCode, useRepresentative:=True)
         line(L_ITEM - 1) = item.ItemCode
         line(L_NAME - 1) = item.Model
-        line(L_STATUS - 1) = If(isSingle, StatusLabel(rep), b.CommonValue(Function(r) StatusLabel(r)))
+        line(L_STATUS - 1) = b.CommonValueAll(Function(r) StatusLabel(r))  ' ステータスが混ざるときは空欄（内訳行に出る）
         line(L_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
         line(L_REG - 1) = b.CustomerCount
         SetListShelves(line, b.Shelves)
-        line(L_TOTAL - 1) = $"={QtySum(row)}"
-        If Not b.IsDedicated AndAlso details.First > 0 Then
+
+        ' 棚卸総数＝棚の数量＋印刷対象外の内訳行に入れた数（保管先で確認した数）
+        If hasOffShelf Then
+            Dim types = $"{Col(L_ROW_TYPE)}{details.First}:{Col(L_ROW_TYPE)}{details.Last}"
+            Dim totals = $"{Col(L_TOTAL)}{details.First}:{Col(L_TOTAL)}{details.Last}"
+            line(L_TOTAL - 1) = $"={QtySum(row)}+SUMIF({types},""{ListHeaders.ROW_EXCLUDED}"",{totals})"
+        Else
+            line(L_TOTAL - 1) = $"={QtySum(row)}"
+        End If
+
+        If promotable Then
             ' 内訳行のうち専用欄に印の無い得意先だけを集計（印を付けた得意先は専用棚の行として別に計算される）
             Dim mark = $"{Col(L_MARK)}{details.First}:{Col(L_MARK)}{details.Last}"
+            Dim types = $"{Col(L_ROW_TYPE)}{details.First}:{Col(L_ROW_TYPE)}{details.Last}"
             line(L_BOOK - 1) = $"=SUMIF({mark},"""",{Col(L_DETAIL)}{details.First}:{Col(L_DETAIL)}{details.Last})"
             line(L_PRICE - 1) = $"=MAXIFS({Col(L_PRICE)}{details.First}:{Col(L_PRICE)}{details.Last},{mark},"""")"
-            ' 登録数＝印の無い得意先の数（同じ得意先の倉庫・ステータス違いは1つと数える）
+            ' 登録数＝印の無い得意先の数（棚を使う得意先なので印刷対象の内訳行だけ。同じ得意先の倉庫・ステータス違いは1つと数える）
             Dim codes = $"{Col(L_CUST_CODE)}{details.First}:{Col(L_CUST_CODE)}{details.Last}"
             ' 代表得意先＝印の無い最初の内訳行（内訳は短縮CD順）。内訳を専用にしたら次の得意先に替わる
             line(L_CUST - 1) = FirstUnmarked(L_CUST, details, mark)
             line(L_CUST_CODE - 1) = FirstUnmarked(L_CUST_CODE, details, mark)
-            line(L_REG - 1) = $"=ROUND(SUMPRODUCT(({mark}="""")/COUNTIFS({codes},{codes},{mark},{mark}&"""")),0)"
+            line(L_REG - 1) = $"=ROUND(SUMPRODUCT(({mark}="""")*({types}=""{ListHeaders.ROW_DETAIL}"")/COUNTIFS({codes},{codes},{mark},{mark}&"""",{types},{types}&"""")),0)"
         Else
-            line(L_BOOK - 1) = CDbl(b.Quantity)
+            line(L_BOOK - 1) = CDbl(b.TotalQuantity)
             line(L_PRICE - 1) = CDbl(b.UnitPrice)
         End If
         line(L_DIFF - 1) = $"={Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row}"
@@ -342,8 +408,9 @@ Public NotInheritable Class StocktakingWriter
     End Function
 
     ''' <summary>
-    ''' 内訳行・対象外行（集計対象外。在庫は「内訳在庫」列に出す）。
-    ''' 単価は常に表示。共用棚の内訳行は、専用欄に印を付けると AX在庫数・棚卸総数・差数・差額が出て専用棚の行として計算される
+    ''' 内訳行（集計対象外。在庫は「内訳在庫」列に出す）。
+    ''' 単価は常に表示。共用棚の内訳行は、専用欄に印を付けると AX在庫数・棚卸総数・差数・差額が出て専用棚の行として計算される。
+    ''' 印刷対象外の行は棚卸総数の欄が入力欄（保管先で確認した数。集計行の棚卸総数に足される）
     ''' </summary>
     Private Function ListDetailLine(item As StocktakingItem, r As StockRow, no As Object, rowType As String, row As Integer) As Object()
         Dim line = NewListLine()
@@ -365,6 +432,8 @@ Public NotInheritable Class StocktakingWriter
             line(L_BOOK - 1) = $"=IF({marked},{Col(L_DETAIL)}{row},"""")"
             line(L_DIFF - 1) = $"=IF({marked},{Col(L_TOTAL)}{row}-{Col(L_BOOK)}{row}+{Col(L_PLUS)}{row}-{Col(L_MINUS)}{row},"""")"
             line(L_AMOUNT - 1) = $"=IF({marked},{Col(L_DIFF)}{row}*{Col(L_PRICE)}{row},"""")"
+        ElseIf rowType = ListHeaders.ROW_EXCLUDED Then
+            line(L_NOTE - 1) = ListHeaders.EXCLUDED_NOTE
         End If
         Return line
     End Function
@@ -415,16 +484,18 @@ Public NotInheritable Class StocktakingWriter
         Const P_CUST As Integer = 3
         Const P_SUP As Integer = 4
         Const P_NAME As Integer = 5
-        Const P_REG As Integer = 6
-        Dim pStock As Integer = If(opt.ShowStockOnPrintSheet, 7, 0)
-        Dim pShelf As Integer = If(opt.ShowStockOnPrintSheet, 8, 7)
+        Const P_MARK As Integer = 6                               ' 専用（専用棚の行に○）
+        Const P_STATUS As Integer = 7                             ' ステータス（混在する行は空欄。内訳行に出る）
+        Const P_REG As Integer = 8
+        Dim pStock As Integer = If(opt.ShowStockOnPrintSheet, 9, 0)
+        Dim pShelf As Integer = If(opt.ShowStockOnPrintSheet, 10, 9)
         Dim pOrder As Integer = pShelf + SLOTS * 2               ' 並び順（非表示）
         Dim pCols As Integer = pOrder
 
         Dim lines As New List(Of Object())
         Dim detailSpans As New List(Of RowSpan)
 
-        Dim newLine = Function(no As Object, wh As String, cust As String, sup As String, name As String,
+        Dim newLine = Function(no As Object, wh As String, cust As String, sup As String, name As String, mark As String, status As String,
                                reg As Object, stock As Decimal, shelves As IDictionary(Of Integer, String)) As Object()
                           Dim line(pCols - 1) As Object
                           line(P_NO - 1) = no
@@ -432,6 +503,8 @@ Public NotInheritable Class StocktakingWriter
                           line(P_CUST - 1) = cust
                           line(P_SUP - 1) = sup
                           line(P_NAME - 1) = name
+                          line(P_MARK - 1) = mark
+                          line(P_STATUS - 1) = status
                           line(P_REG - 1) = reg
                           If pStock > 0 Then line(pStock - 1) = CDbl(stock)
                           If shelves IsNot Nothing Then
@@ -444,25 +517,20 @@ Public NotInheritable Class StocktakingWriter
 
         Dim rowNo As Integer = 2
         For Each item In items
-            For Each b In item.Blocks
+            ' 印刷対象外だけのブロックは棚に無いので載せない（一覧シートで数を入れる）
+            For Each b In item.Blocks.Where(Function(x) x.HasPrintRows)
                 Dim rep = b.Representative
-                Dim isSingle As Boolean = b.Rows.Count = 1
-                Dim name = item.Model
-                If isSingle AndAlso StatusLabel(rep) <> "" Then name &= $"【{StatusLabel(rep)}】"
-                If b.IsDedicated Then name &= "【専用】"
-
-                lines.Add(newLine(b.No,
-                                  If(isSingle, rep.Warehouse, b.CommonValue(Function(r) r.Warehouse)),
-                                  rep.CustomerShortCode,
-                                  If(isSingle, rep.SupplierShortCode, b.CommonValue(Function(r) r.SupplierShortCode, useRepresentative:=True)),
-                                  name, b.CustomerCount, b.Quantity, b.Shelves))
+                lines.Add(newLine(b.No, b.CommonValue(Function(r) r.Warehouse), rep.CustomerShortCode,
+                                  b.CommonValue(Function(r) r.SupplierShortCode, useRepresentative:=True),
+                                  item.Model, If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing), b.CommonValue(Function(r) StatusLabel(r)),
+                                  b.CustomerCount, b.Quantity, b.Shelves))
                 rowNo += 1
 
-                If HasDetail(b, opt) Then
+                If HasPrintDetail(b, opt) Then
                     Dim first As Integer = rowNo
                     For Each r In b.Rows
                         lines.Add(newLine(b.No, r.Warehouse, r.CustomerShortCode, r.SupplierShortCode,
-                                          PrintName(item, r), Nothing, r.Quantity, Nothing))
+                                          item.Model, Nothing, StatusLabel(r), Nothing, r.Quantity, Nothing))
                         rowNo += 1
                     Next
                     detailSpans.Add(New RowSpan(first, rowNo - 1))
@@ -483,7 +551,7 @@ Public NotInheritable Class StocktakingWriter
         Next
 
         Dim data(lastRow - 1, pCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "倉庫", "得意先", "仕入先", "品名", "登録数"}
+        Dim headers As New List(Of String) From {"No", "倉庫", "得意先", "仕入先", "品名", "専用", "ステータス", "登録数"}
         If pStock > 0 Then headers.Add("在庫数")
         For i As Integer = 1 To SLOTS
             headers.Add("棚番")
@@ -499,7 +567,7 @@ Public NotInheritable Class StocktakingWriter
             Next
         Next
 
-        xl.SetColumnsNumberFormat(P_WH, P_NAME, nfString)
+        xl.SetColumnsNumberFormat(P_WH, P_STATUS, nfString)
         If pStock > 0 Then xl.SetColumnNumberFormat(pStock, nfInteger)
         For i As Integer = 0 To SLOTS - 1
             xl.SetColumnNumberFormat(pShelf + i * 2, nfString)
@@ -507,8 +575,9 @@ Public NotInheritable Class StocktakingWriter
 
         xl.SetValue(data)
 
-        ' 列幅：旧アプリと同じ総幅（記入欄 97/105）から倉庫列の分を引き、棚番:数量 = 1:3 で配分
-        Dim widths As New List(Of Double) From {3, 4, 4, 4, 19, 3}
+        ' 列幅：旧アプリと同じ総幅（記入欄 97/105）から倉庫列の分を引き、棚番:数量 = 1:3 で配分。
+        ' 専用・ステータス列の分は品名列から割く（記入欄の幅は変えない）
+        Dim widths As New List(Of Double) From {3, 4, 4, 4, 13, 2.5, 3.5, 3}
         If pStock > 0 Then widths.Add(8)
         Dim slotWidth As Double = If(pStock > 0, 93.0, 101.0) / SLOTS
         For i As Integer = 1 To SLOTS
@@ -519,7 +588,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(pOrder)
 
-        For Each c In {P_NO, P_WH, P_CUST, P_SUP, P_REG}
+        For Each c In {P_NO, P_WH, P_CUST, P_SUP, P_MARK, P_STATUS, P_REG}
             xl.SetColumnAlign(c, xlCenter)
         Next
         xl.SetRowAlign(1, xlCenter)
@@ -570,11 +639,137 @@ Public NotInheritable Class StocktakingWriter
             End Sub)
     End Sub
 
-    ''' <summary>印刷用の品名（通常以外のステータスは【】で付記）</summary>
-    Private Shared Function PrintName(item As StocktakingItem, r As StockRow) As String
-        Dim label As String = StatusLabel(r)
-        Return If(label = "", item.Model, $"{item.Model}【{label}】")
-    End Function
+    ' ============================================================
+    ' 棚番別シート
+    ' ============================================================
+    ''' <summary>
+    ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
+    ''' 縦向き印刷。並べ替え・絞り込みは現場でオートフィルタを使う（棚番順で出力）。
+    ''' 数えた数は一覧シートの同じ位置（棚番1～）の数量欄に書き写す
+    ''' </summary>
+    Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
+        Const MAX_POSITION As Integer = 5                         ' 棚番5まで
+        Const S_SHELF As Integer = 1
+        Const S_POS As Integer = 2
+        Const S_NO As Integer = 3
+        Const S_WH As Integer = 4
+        Const S_NAME As Integer = 5
+        Const S_MARK As Integer = 6
+        Const S_STATUS As Integer = 7
+        Const S_CUST As Integer = 8
+        Const S_CUST_NAME As Integer = 9
+        Const S_SUP As Integer = 10
+        Const S_SUP_NAME As Integer = 11
+        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 12, 0)
+        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 13, 12)
+        Dim sNote As Integer = sQty + 1
+        Dim sOrder As Integer = sNote + 1                         ' 並び順（非表示）
+        Dim sCols As Integer = sOrder
+
+        ' 棚番 → No → 位置 の順（棚番なしは最後）
+        Dim entries As New List(Of Tuple(Of String, Integer, StocktakingItem, StockBlock))
+        For Each item In items
+            For Each b In item.Blocks.Where(Function(x) x.HasPrintRows)
+                Dim positions = b.Shelves.Where(Function(kv) kv.Key <= MAX_POSITION).ToList()
+                If positions.Count = 0 Then
+                    entries.Add(Tuple.Create("", 0, item, b))
+                Else
+                    For Each kv In positions
+                        entries.Add(Tuple.Create(kv.Value, kv.Key, item, b))
+                    Next
+                End If
+            Next
+        Next
+        Dim ordered = entries.OrderBy(Function(e) If(e.Item1 = "", 1, 0)) _
+                             .ThenBy(Function(e) e.Item1, StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item4.No) _
+                             .ThenBy(Function(e) e.Item2) _
+                             .ToList()
+
+        Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
+        Dim data(lastRow - 1, sCols - 1) As Object
+        Dim headers As New List(Of String) From {"棚番", "位置", "No", "倉庫", "品名", "専用", "ステータス", "得意先", "得意先名", "仕入先", "仕入先名"}
+        If sStock > 0 Then headers.Add("在庫数")
+        headers.AddRange({"数量", ListHeaders.NOTE, ListHeaders.ORDER})
+        For c As Integer = 0 To sCols - 1
+            data(0, c) = headers(c)
+        Next
+
+        For i As Integer = 0 To ordered.Count - 1
+            Dim e = ordered(i)
+            Dim b = e.Item4
+            Dim rep = b.Representative
+            Dim others As Integer = b.CustomerCount - 1
+            Dim r As Integer = i + 1
+            data(r, S_SHELF - 1) = e.Item1
+            data(r, S_POS - 1) = If(e.Item2 > 0, CObj(e.Item2), Nothing)
+            data(r, S_NO - 1) = b.No
+            data(r, S_WH - 1) = b.CommonValue(Function(x) x.Warehouse)
+            data(r, S_NAME - 1) = e.Item3.Model
+            data(r, S_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
+            data(r, S_STATUS - 1) = b.CommonValue(Function(x) StatusLabel(x))
+            data(r, S_CUST - 1) = rep.CustomerShortCode
+            ' 共用棚に複数の得意先がいるときは代表得意先＋「他n」
+            data(r, S_CUST_NAME - 1) = If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName)
+            Dim sup = b.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True)
+            data(r, S_SUP - 1) = sup
+            data(r, S_SUP_NAME - 1) = b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault()
+            If sStock > 0 Then data(r, sStock - 1) = CDbl(b.Quantity)
+            data(r, sOrder - 1) = r
+        Next
+        For i As Integer = 1 To APPEND_ROWS
+            Dim r As Integer = ordered.Count + i
+            data(r, S_NO - 1) = APPEND_LABEL
+            data(r, sOrder - 1) = r
+        Next
+
+        xl.SetColumnsNumberFormat(S_SHELF, S_SHELF, nfString)
+        xl.SetColumnsNumberFormat(S_WH, S_SUP_NAME, nfString)
+        If sStock > 0 Then xl.SetColumnNumberFormat(sStock, nfInteger)
+
+        xl.SetValue(data)
+
+        Dim widths As New List(Of Double) From {10, 3, 4, 4, 24, 2.5, 4, 4, 11, 4, 11}
+        If sStock > 0 Then widths.Add(7)
+        widths.AddRange({9, 10, 8})
+        xl.SetColumnsWidth(widths.ToArray())
+        xl.SetColumnHidden(sOrder)
+
+        For Each c In {S_POS, S_NO, S_WH, S_MARK, S_STATUS, S_CUST, S_SUP}
+            xl.SetColumnAlign(c, xlCenter)
+        Next
+        xl.SetRowAlign(1, xlCenter)
+        xl.SetAutoFilter(1, 1, lastRow, sCols)
+
+        Dim headerText As String = opt.OfficeHeader & "（棚番別）"
+        Dim outputText As String = $"出力：{opt.OutputAt:yyyy/MM/dd HH:mm}"
+        xl.WithSheet(SHELF_SHEET_NAME,
+            Sub(sh)
+                Dim all = sh.Range(sh.Cells(1, 1), sh.Cells(lastRow, sCols))
+                all.RowHeight = 24
+                all.ShrinkToFit = True
+                all.Borders.LineStyle = xlContinuous
+
+                With sh.PageSetup
+                    .Orientation = xlPortrait
+                    .PaperSize = xlPaperA4
+                    .TopMargin = 24
+                    .BottomMargin = 6
+                    .LeftMargin = 6
+                    .RightMargin = 6
+                    .HeaderMargin = 6
+                    .FooterMargin = 0
+                    .Zoom = False
+                    .FitToPagesWide = 1
+                    .FitToPagesTall = False
+                    .CenterHorizontally = True
+                    .PrintTitleRows = "$1:$1"
+                    .LeftHeader = outputText
+                    .CenterHeader = headerText
+                    .RightHeader = "ページ：&P/&N"
+                End With
+            End Sub)
+    End Sub
 
     ' ============================================================
     ' 共通
@@ -588,7 +783,7 @@ Public NotInheritable Class StocktakingWriter
 
     ''' <summary>単価に小数を含む行があるか（単価列の表示形式の判定）</summary>
     Private Shared Function HasFraction(items As List(Of StocktakingItem)) As Boolean
-        Return items.SelectMany(Function(i) i.Targets).Any(Function(r) r.UnitPrice <> Decimal.Truncate(r.UnitPrice))
+        Return items.SelectMany(Function(i) i.Targets.Concat(i.Excluded)).Any(Function(r) r.UnitPrice <> Decimal.Truncate(r.UnitPrice))
     End Function
 
     Private Shared Function Col(columnIndex As Integer) As String
