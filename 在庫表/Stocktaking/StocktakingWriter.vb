@@ -662,9 +662,9 @@ Public NotInheritable Class StocktakingWriter
     ''' </summary>
     Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
         Const MAX_POSITION As Integer = 5                         ' 棚番5まで
-        Const S_SHELF As Integer = 1
-        Const S_POS As Integer = 2
-        Const S_NO As Integer = 3
+        Const S_NO As Integer = 1
+        Const S_SHELF As Integer = 2
+        Const S_POS As Integer = 3                                ' 追番（一覧シートの棚番N列のN）
         Const S_WH As Integer = 4
         Const S_CUST As Integer = 5
         Const S_SUP As Integer = 6
@@ -703,7 +703,7 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"棚番", "位置", "No", "倉庫", "得意先", "仕入先", ListHeaders.MODEL, "専用", "ステータス"}
+        Dim headers As New List(Of String) From {"No", "棚番", "追番", "倉庫", "得意先", "仕入先", ListHeaders.MODEL, "専用", "ステータス"}
         If sStock > 0 Then headers.Add("在庫数")
         headers.AddRange({"数量", ListHeaders.NOTE, "得意先名", "仕入先名", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
@@ -746,7 +746,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetValue(data)
 
         ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。型式・在庫数・数量に余裕を持たせ、専用とステータスは同じ幅
-        Dim widths As New List(Of Double) From {13, 5, 6, 7, 7, 7, 36, 8, 8}
+        Dim widths As New List(Of Double) From {6, 13, 5, 7, 7, 7, 36, 8, 8}
         If sStock > 0 Then widths.Add(11)
         widths.AddRange({14, 16, 16, 16, 8})
         xl.SetColumnsWidth(widths.ToArray())
@@ -755,7 +755,7 @@ Public NotInheritable Class StocktakingWriter
         For Each c In {S_POS, S_NO, S_WH, S_MARK, S_STATUS, S_CUST, S_SUP}
             xl.SetColumnAlign(c, xlCenter)
         Next
-        xl.SetRowAlign(1, xlCenter)
+        xl.SetRowAlign(1, xlLeft)                                 ' 見出し行は左寄せ
         xl.SetAutoFilter(1, 1, lastRow, sCols)
 
         Dim headerText As String = opt.OfficeHeader & "（棚番別）"
@@ -766,10 +766,12 @@ Public NotInheritable Class StocktakingWriter
                 ' 型式の空白位置が揃うよう等幅の MS ゴシックにする
                 all.Font.Name = "ＭＳ ゴシック"
                 all.Font.Size = 12
-                all.RowHeight = 26
                 all.Borders.LineStyle = xlContinuous
-                ' 見出し行は縮小しない
-                sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols)).ShrinkToFit = True
+                ' 明細行は手書きできる高さ。見出し行は縮小しない
+                Dim body = sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols))
+                body.RowHeight = 36
+                body.ShrinkToFit = True
+                sh.Rows(1).RowHeight = 26
 
                 With sh.PageSetup
                     .Orientation = xlLandscape
