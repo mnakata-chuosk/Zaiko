@@ -655,7 +655,9 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ''' <summary>
     ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
-    ''' 列は他のシートと同じ 倉庫 → 得意先 → 仕入先 → 型式 の順、得意先名・仕入先名は備考の後ろ。縦向き印刷。並べ替え・絞り込みは現場でオートフィルタを使う（棚番順で出力）。
+    ''' 列は他のシートと同じ 倉庫 → 得意先 → 仕入先 → 型式 の順、得意先名・仕入先名は備考の後ろ。
+    ''' 横向き印刷・MS ゴシック 12pt（型式の空白位置を揃えるため等幅）。
+    ''' 並べ替え・絞り込みは現場でオートフィルタを使う（棚番 → 仕入先 → 型式の順で出力）。
     ''' 数えた数は一覧シートの同じ位置（棚番1～）の数量欄に書き写す
     ''' </summary>
     Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
@@ -677,7 +679,7 @@ Public NotInheritable Class StocktakingWriter
         Dim sOrder As Integer = sSupName + 1                      ' 並び順（非表示）
         Dim sCols As Integer = sOrder
 
-        ' 棚番 → No → 位置 の順（棚番なしは最後）
+        ' 棚番 → 仕入先（短縮CD）→ 型式 の順（棚番なしは最後）
         Dim entries As New List(Of Tuple(Of String, Integer, StocktakingItem, StockBlock))
         For Each item In items
             For Each b In item.Blocks.Where(Function(x) x.HasPrintRows)
@@ -693,6 +695,8 @@ Public NotInheritable Class StocktakingWriter
         Next
         Dim ordered = entries.OrderBy(Function(e) If(e.Item1 = "", 1, 0)) _
                              .ThenBy(Function(e) e.Item1, StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item4.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True), StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item3.Model, StringComparer.Ordinal) _
                              .ThenBy(Function(e) e.Item4.No) _
                              .ThenBy(Function(e) e.Item2) _
                              .ToList()
@@ -741,9 +745,10 @@ Public NotInheritable Class StocktakingWriter
 
         xl.SetValue(data)
 
-        Dim widths As New List(Of Double) From {10, 3, 4, 4, 4, 4, 24, 2.5, 4}
-        If sStock > 0 Then widths.Add(7)
-        widths.AddRange({9, 10, 11, 11, 8})
+        ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。型式・在庫数・数量に余裕を持たせ、専用とステータスは同じ幅
+        Dim widths As New List(Of Double) From {13, 5, 6, 7, 7, 7, 36, 8, 8}
+        If sStock > 0 Then widths.Add(11)
+        widths.AddRange({14, 16, 16, 16, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
@@ -758,12 +763,16 @@ Public NotInheritable Class StocktakingWriter
         xl.WithSheet(SHELF_SHEET_NAME,
             Sub(sh)
                 Dim all = sh.Range(sh.Cells(1, 1), sh.Cells(lastRow, sCols))
-                all.RowHeight = 24
-                all.ShrinkToFit = True
+                ' 型式の空白位置が揃うよう等幅の MS ゴシックにする
+                all.Font.Name = "ＭＳ ゴシック"
+                all.Font.Size = 12
+                all.RowHeight = 26
                 all.Borders.LineStyle = xlContinuous
+                ' 見出し行は縮小しない
+                sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols)).ShrinkToFit = True
 
                 With sh.PageSetup
-                    .Orientation = xlPortrait
+                    .Orientation = xlLandscape
                     .PaperSize = xlPaperA4
                     .TopMargin = 24
                     .BottomMargin = 6
