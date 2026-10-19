@@ -673,17 +673,18 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ''' <summary>
     ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
-    ''' 列は No → 棚番 → 追番 → 型式 → 専用 → ステータス → (在庫数) → 数量 → 倉庫 → 得意先 → 仕入先。
+    ''' 列は No → 棚番 → 棚数 → 型式 → 専用 → ステータス → (在庫数) → 数量 → 倉庫 → 得意先 → 仕入先。
+    ''' 棚数はその集計行に登録されている棚番の数（他の棚にもあるかが分かるように）。
     ''' 得意先・仕入先は略称。コードを表示する設定なら「短縮CD（改行）略称」の1セル2行。
     ''' 横向き印刷・MS ゴシック 12pt（型式の空白位置を揃えるため等幅）。明細行は「○個入り×何箱」の計算も書ける高さ。
     ''' 並べ替え・絞り込みは現場でオートフィルタを使う（棚番 → 仕入先 → 型式の順で出力）。
-    ''' 数えた数は一覧シートの同じ位置（棚番1～）の数量欄に書き写す
+    ''' 数えた数は一覧シートの同じ No の行で、同じ棚番の数量欄に書き写す
     ''' </summary>
     Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
         Const MAX_POSITION As Integer = 5                         ' 棚番5まで
         Const S_NO As Integer = 1
         Const S_SHELF As Integer = 2
-        Const S_POS As Integer = 3                                ' 追番（一覧シートの棚番N列のN）
+        Const S_COUNT As Integer = 3                              ' 棚数（登録されている棚番の数。棚番5より後ろも数える）
         Const S_NAME As Integer = 4
         Const S_MARK As Integer = 5
         Const S_STATUS As Integer = 6
@@ -725,7 +726,7 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "棚番", "追番", ListHeaders.MODEL, "専用", "ステ"}   ' 見出しは縮小しないので細い列に収まる「ステ」
+        Dim headers As New List(Of String) From {"No", "棚番", "棚数", ListHeaders.MODEL, "専用", "ステ"}   ' 見出しは縮小しないので細い列に収まる「ステ」
         If sStock > 0 Then headers.Add("在庫数")
         headers.AddRange({"数量", "倉庫", "得意先", "仕入先", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
@@ -740,7 +741,7 @@ Public NotInheritable Class StocktakingWriter
             Dim r As Integer = i + 1
             data(r, S_NO - 1) = b.No
             data(r, S_SHELF - 1) = e.Item1
-            data(r, S_POS - 1) = If(e.Item2 > 0, CObj(e.Item2), Nothing)
+            data(r, S_COUNT - 1) = If(b.Shelves.Count > 0, CObj(b.Shelves.Count), Nothing)
             data(r, S_NAME - 1) = e.Item3.Model
             data(r, S_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
             data(r, S_STATUS - 1) = b.CommonValue(Function(x) StatusLabel(x))
@@ -771,7 +772,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
-        For Each c In {S_NO, S_POS, S_MARK, S_STATUS, sWh}
+        For Each c In {S_NO, S_COUNT, S_MARK, S_STATUS, sWh}
             xl.SetColumnAlign(c, xlCenter)
         Next
         xl.SetRowAlign(1, xlLeft)                                 ' 見出し行は左寄せ
