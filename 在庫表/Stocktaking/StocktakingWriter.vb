@@ -588,8 +588,8 @@ Public NotInheritable Class StocktakingWriter
         xl.SetValue(data)
 
         ' 列幅：旧アプリと同じ総幅（記入欄 97/105）から倉庫列の分を引き、棚番:数量 = 1:3 で配分。
-        ' 専用・ステータス列の分は型式列から割く（記入欄の幅は変えない）
-        Dim widths As New List(Of Double) From {3, 4, 4, 4, 13, 2.5, 3.5, 3}
+        ' 専用・ステータス列は細く（棚番別と同じく7掛け）。横幅が A4 横に収まらない分は下で記入欄を縮める
+        Dim widths As New List(Of Double) From {3, 4, 4, 4, 13, 1.75, 2.45, 3}
         If pStock > 0 Then widths.Add(8)
         Dim slotWidth As Double = If(pStock > 0, 93.0, 101.0) / SLOTS
         For i As Integer = 1 To SLOTS
@@ -628,6 +628,23 @@ Public NotInheritable Class StocktakingWriter
                 all.ShrinkToFit = True                       ' 文字サイズをセル幅に合わせる
                 all.Borders.LineStyle = xlContinuous         ' 格子
                 sh.Columns(P_NAME).WrapText = True           ' 型式はセル幅で折り返し
+
+                ' 旧アプリと同じ大きさ（倍率100%）で刷れるよう、横幅が A4 横の印刷範囲を超える分だけ記入欄（棚番・数量）を狭める
+                ' （横1ページに収める設定なので、はみ出すと Excel が全体を縮小して文字・枠が小さくなる）
+                Const PRINTABLE_WIDTH As Double = 842 - 6 - 6 - 4   ' A4横の幅 − 左右余白 − ゆとり（pt）
+                For pass As Integer = 1 To 3
+                    Dim total As Double = 0
+                    Dim slotTotal As Double = 0
+                    For c As Integer = 1 To pOrder - 1
+                        total += CDbl(sh.Columns(c).Width)
+                        If c >= pShelf Then slotTotal += CDbl(sh.Columns(c).Width)
+                    Next
+                    If total <= PRINTABLE_WIDTH Then Exit For
+                    Dim factor As Double = (slotTotal - (total - PRINTABLE_WIDTH)) / slotTotal
+                    For c As Integer = pShelf To pOrder - 1
+                        sh.Columns(c).ColumnWidth = CDbl(sh.Columns(c).ColumnWidth) * factor
+                    Next
+                Next
 
                 With sh.PageSetup
                     .Orientation = xlLandscape
