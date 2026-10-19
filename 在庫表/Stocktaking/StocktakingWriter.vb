@@ -786,16 +786,27 @@ Public NotInheritable Class StocktakingWriter
                 all.Font.Name = "ＭＳ ゴシック"
                 all.Font.Size = 12
                 all.Borders.LineStyle = xlContinuous
-                ' 明細行は「○個入り×何箱」の計算も書ける高さ。見出し行は縮小しない
+                ' 明細行は「○個入り×何箱」の計算も書ける高さで、印刷1ページに ROWS_PER_PAGE 行入るようにする。見出し行は縮小しない
+                ' （横1ページに収めるため Excel が縮小する倍率を列幅から求め、その倍率で11行入る高さにする。行高は 0.75pt 単位）
+                Const ROWS_PER_PAGE As Integer = 11
+                Const HEADER_HEIGHT As Double = 26
+                Const PAGE_WIDTH As Double = 842 - 6 - 6        ' A4横 − 左右余白（pt）
+                Const PAGE_HEIGHT As Double = 595 - 24 - 6      ' A4横 − 上下余白（pt）
+                Dim totalWidth As Double = 0
+                For c As Integer = 1 To sOrder - 1
+                    totalWidth += CDbl(sh.Columns(c).Width)
+                Next
+                Dim scale As Double = Math.Min(1.0, PAGE_WIDTH / totalWidth)
+                Dim rowHeight As Double = Math.Floor((PAGE_HEIGHT / scale - HEADER_HEIGHT) / ROWS_PER_PAGE / 0.75) * 0.75 - 0.75
                 Dim body = sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols))
-                body.RowHeight = 54
+                body.RowHeight = Math.Min(rowHeight, 54.0)
                 body.ShrinkToFit = True
                 body.VerticalAlignment = xlCenter
                 ' 得意先・仕入先は「短縮CD（改行）略称」になるので折り返す（折り返しと縮小は両立しないため縮小は外す）
                 Dim names = sh.Range(sh.Cells(2, sCust), sh.Cells(lastRow, sSup))
                 names.ShrinkToFit = False
                 names.WrapText = True
-                sh.Rows(1).RowHeight = 26
+                sh.Rows(1).RowHeight = HEADER_HEIGHT
 
                 With sh.PageSetup
                     .Orientation = xlLandscape
