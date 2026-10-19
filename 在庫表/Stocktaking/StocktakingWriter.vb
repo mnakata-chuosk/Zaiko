@@ -779,6 +779,7 @@ Public NotInheritable Class StocktakingWriter
         xl.SetRowAlign(1, xlLeft)                                 ' 見出し行は左寄せ
         xl.SetAutoFilter(1, 1, lastRow, sCols)
 
+        Dim zoomPercent As Integer = 100
         Dim headerText As String = opt.OfficeHeader & "（棚番別）"
         Dim outputText As String = $"出力：{opt.OutputAt:yyyy/MM/dd HH:mm}"
         xl.WithSheet(SHELF_SHEET_NAME,
@@ -789,7 +790,8 @@ Public NotInheritable Class StocktakingWriter
                 all.Font.Size = 12
                 all.Borders.LineStyle = xlContinuous
                 ' 明細行は「○個入り×何箱」の計算も書ける高さで、印刷1ページに ROWS_PER_PAGE 行入るようにする。見出し行は縮小しない
-                ' （横1ページに収めるため Excel が縮小する倍率を列幅から求め、その倍率で11行入る高さにする。行高は 0.75pt 単位）
+                ' （横1ページに収まる印刷倍率を列幅から求めて直接指定し、その倍率でちょうど11行入る高さにする。行高は 0.75pt 単位）
+                ' 倍率を Excel の「横1ページに合わせる」に任せると実際の倍率が計算より小さくなり、下に余白が残るため
                 Const ROWS_PER_PAGE As Integer = 11
                 Const HEADER_HEIGHT As Double = 26
                 Const PAGE_WIDTH As Double = 842 - 6 - 6        ' A4横 − 左右余白（pt）
@@ -798,10 +800,10 @@ Public NotInheritable Class StocktakingWriter
                 For c As Integer = 1 To sOrder - 1
                     totalWidth += CDbl(sh.Columns(c).Width)
                 Next
-                Dim scale As Double = Math.Min(1.0, PAGE_WIDTH / totalWidth)
-                Dim rowHeight As Double = Math.Floor((PAGE_HEIGHT / scale - HEADER_HEIGHT) / ROWS_PER_PAGE / 0.75) * 0.75 - 0.75
+                zoomPercent = CInt(Math.Min(100, Math.Floor(PAGE_WIDTH / totalWidth * 100) - 1))   ' 1% はみ出し防止のゆとり
+                Dim rowHeight As Double = Math.Floor((PAGE_HEIGHT / (zoomPercent / 100.0) - HEADER_HEIGHT) / ROWS_PER_PAGE / 0.75) * 0.75 - 0.75
                 Dim body = sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols))
-                body.RowHeight = Math.Min(rowHeight, 54.0)
+                body.RowHeight = rowHeight
                 body.ShrinkToFit = True
                 body.VerticalAlignment = xlCenter
                 ' 得意先・仕入先は「短縮CD（改行）略称」になるので折り返す（折り返しと縮小は両立しないため縮小は外す）
@@ -819,15 +821,23 @@ Public NotInheritable Class StocktakingWriter
                     .RightMargin = 6
                     .HeaderMargin = 6
                     .FooterMargin = 0
-                    .Zoom = False
-                    .FitToPagesWide = 1
-                    .FitToPagesTall = False
+                    .Zoom = zoomPercent                      ' 横1ページに収まる倍率（上で計算）
                     .CenterHorizontally = True
                     .PrintTitleRows = "$1:$1"
                     .LeftHeader = outputText
                     .CenterHeader = headerText
                     .RightHeader = "ページ：&P/&N"
                 End With
+
+                ' 実際の印刷寸法は計算より少し小さく、計算した高さだと1ページに12行入ってしまうことがあるため、
+                ' 改ページ位置を見ながら1ページちょうど ROWS_PER_PAGE 行になるまで少しずつ高くする（下の余白を残さない）
+                For i As Integer = 1 To 20
+                    If sh.HPageBreaks.Count = 0 Then Exit For
+                    Dim perPage As Integer = CInt(sh.HPageBreaks(1).Location.Row) - 2   ' 見出し1行を除く
+                    If perPage <= ROWS_PER_PAGE Then Exit For
+                    rowHeight += 0.75
+                    body.RowHeight = rowHeight
+                Next
             End Sub)
     End Sub
 
