@@ -766,9 +766,10 @@ Public NotInheritable Class StocktakingWriter
         xl.SetValue(data)
 
         ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。数量は計算も書けるよう広く、専用とステータスは同じ幅
-        Dim widths As New List(Of Double) From {6, 13, 5, 36, 5.5, 5.5}
+        ' 棚数 4、専用・ステ 5、得意先・仕入先 14。残りは数量へ
+        Dim widths As New List(Of Double) From {6, 13, 4, 36, 5, 5}
         If sStock > 0 Then widths.Add(11)
-        widths.AddRange({30, 7, 16, 16, 8})
+        widths.AddRange({36, 7, 14, 14, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
