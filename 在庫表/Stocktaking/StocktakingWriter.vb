@@ -766,17 +766,17 @@ Public NotInheritable Class StocktakingWriter
         xl.SetValue(data)
 
         ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。数量は計算も書けるよう広く、専用とステータスは同じ幅
-        ' 棚数 4、専用・ステ 5、得意先・仕入先 14。残りは数量へ
-        Dim widths As New List(Of Double) From {6, 13, 4, 36, 5, 5}
+        ' 型式 45（大きい文字で見やすく）、数量 30、棚数 4、専用・ステ 5、得意先・仕入先 12
+        Dim widths As New List(Of Double) From {6, 13, 4, 45, 5, 5}
         If sStock > 0 Then widths.Add(11)
-        widths.AddRange({36, 7, 14, 14, 8})
+        widths.AddRange({30, 7, 12, 12, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
         For Each c In {S_NO, S_COUNT, S_MARK, S_STATUS, sWh}
             xl.SetColumnAlign(c, xlCenter)
         Next
-        xl.SetRowAlign(1, xlLeft)                                 ' 見出し行は左寄せ
+        xl.SetRowAlign(1, xlCenter)                               ' 見出し行は中央揃え
         xl.SetAutoFilter(1, 1, lastRow, sCols)
 
         Dim zoomPercent As Integer = 100
@@ -803,6 +803,8 @@ Public NotInheritable Class StocktakingWriter
                 Dim names = sh.Range(sh.Cells(2, sCust), sh.Cells(lastRow, sSup))
                 names.ShrinkToFit = False
                 names.WrapText = True
+                ' 型式は現場で見つけやすいよう大きく（長い型式は縮小表示で収める）
+                sh.Range(sh.Cells(2, S_NAME), sh.Cells(lastRow, S_NAME)).Font.Size = 20
                 sh.Rows(1).RowHeight = HEADER_HEIGHT
 
                 Dim totalWidth As Double = 0
