@@ -725,7 +725,7 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "棚番", "追番", ListHeaders.MODEL, "専用", "ステータス"}
+        Dim headers As New List(Of String) From {"No", "棚番", "追番", ListHeaders.MODEL, "専用", "ステ"}   ' 見出しは縮小しないので細い列に収まる「ステ」
         If sStock > 0 Then headers.Add("在庫数")
         headers.AddRange({"数量", "倉庫", "得意先", "仕入先", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
