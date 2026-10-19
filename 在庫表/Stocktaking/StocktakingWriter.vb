@@ -22,7 +22,8 @@ Public NotInheritable Class StocktakingWriter
     ''' <summary>リスト外の現物を書き込むための追記行数</summary>
     Private Const APPEND_ROWS As Integer = 10
     Private Const APPEND_LABEL As String = ListHeaders.APPEND_NO
-    Private Const PRINT_SHEET_NAME As String = "印刷用"
+    ''' <summary>印刷用シート（品物ごと）。棚番別と合わせて現場で書き込む紙</summary>
+    Private Const PRINT_SHEET_NAME As String = "型式別"
     Private Const SHELF_SHEET_NAME As String = "棚番別"
 
     ' 一覧シートの列
@@ -655,8 +656,9 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ''' <summary>
     ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
-    ''' 列は他のシートと同じ 倉庫 → 得意先 → 仕入先 → 型式 の順、得意先名・仕入先名は備考の後ろ。
-    ''' 横向き印刷・MS ゴシック 12pt（型式の空白位置を揃えるため等幅）。
+    ''' 列は No → 棚番 → 追番 → 型式 → 専用 → ステータス → (在庫数) → 数量 → 倉庫 → 得意先 → 仕入先。
+    ''' 得意先・仕入先は略称。コードを表示する設定なら「短縮CD（改行）略称」の1セル2行。
+    ''' 横向き印刷・MS ゴシック 12pt（型式の空白位置を揃えるため等幅）。明細行は「○個入り×何箱」の計算も書ける高さ。
     ''' 並べ替え・絞り込みは現場でオートフィルタを使う（棚番 → 仕入先 → 型式の順で出力）。
     ''' 数えた数は一覧シートの同じ位置（棚番1～）の数量欄に書き写す
     ''' </summary>
@@ -665,19 +667,22 @@ Public NotInheritable Class StocktakingWriter
         Const S_NO As Integer = 1
         Const S_SHELF As Integer = 2
         Const S_POS As Integer = 3                                ' 追番（一覧シートの棚番N列のN）
-        Const S_WH As Integer = 4
-        Const S_CUST As Integer = 5
-        Const S_SUP As Integer = 6
-        Const S_NAME As Integer = 7
-        Const S_MARK As Integer = 8
-        Const S_STATUS As Integer = 9
-        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 10, 0)
-        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 11, 10)
-        Dim sNote As Integer = sQty + 1
-        Dim sCustName As Integer = sNote + 1                      ' 得意先名・仕入先名は備考の後ろ
-        Dim sSupName As Integer = sNote + 2
-        Dim sOrder As Integer = sSupName + 1                      ' 並び順（非表示）
+        Const S_NAME As Integer = 4
+        Const S_MARK As Integer = 5
+        Const S_STATUS As Integer = 6
+        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 7, 0)
+        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 8, 7)
+        Dim sWh As Integer = sQty + 1                             ' 倉庫・得意先・仕入先は一番右
+        Dim sCust As Integer = sQty + 2
+        Dim sSup As Integer = sQty + 3
+        Dim sOrder As Integer = sSup + 1                          ' 並び順（非表示）
         Dim sCols As Integer = sOrder
+
+        ' コードを出すときは「短縮CD（改行）略称」
+        Dim party = Function(code As String, name As String) As String
+                        If Not opt.ShowCodesOnShelfSheet OrElse String.IsNullOrEmpty(code) Then Return name
+                        Return If(String.IsNullOrEmpty(name), code, code & vbLf & name)
+                    End Function
 
         ' 棚番 → 仕入先（短縮CD）→ 型式 の順（棚番なしは最後）
         Dim entries As New List(Of Tuple(Of String, Integer, StocktakingItem, StockBlock))
@@ -703,9 +708,9 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "棚番", "追番", "倉庫", "得意先", "仕入先", ListHeaders.MODEL, "専用", "ステータス"}
+        Dim headers As New List(Of String) From {"No", "棚番", "追番", ListHeaders.MODEL, "専用", "ステータス"}
         If sStock > 0 Then headers.Add("在庫数")
-        headers.AddRange({"数量", ListHeaders.NOTE, "得意先名", "仕入先名", ListHeaders.ORDER})
+        headers.AddRange({"数量", "倉庫", "得意先", "仕入先", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
             data(0, c) = headers(c)
         Next
@@ -716,20 +721,18 @@ Public NotInheritable Class StocktakingWriter
             Dim rep = b.Representative
             Dim others As Integer = b.CustomerCount - 1
             Dim r As Integer = i + 1
+            data(r, S_NO - 1) = b.No
             data(r, S_SHELF - 1) = e.Item1
             data(r, S_POS - 1) = If(e.Item2 > 0, CObj(e.Item2), Nothing)
-            data(r, S_NO - 1) = b.No
-            data(r, S_WH - 1) = b.CommonValue(Function(x) x.Warehouse)
             data(r, S_NAME - 1) = e.Item3.Model
             data(r, S_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
             data(r, S_STATUS - 1) = b.CommonValue(Function(x) StatusLabel(x))
-            data(r, S_CUST - 1) = rep.CustomerShortCode
-            ' 共用棚に複数の得意先がいるときは代表得意先＋「他n」
-            data(r, sCustName - 1) = If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName)
-            Dim sup = b.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True)
-            data(r, S_SUP - 1) = sup
-            data(r, sSupName - 1) = b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault()
             If sStock > 0 Then data(r, sStock - 1) = CDbl(b.Quantity)
+            data(r, sWh - 1) = b.CommonValue(Function(x) x.Warehouse)    ' 倉庫区分は設定に関係なく出す
+            ' 共用棚に複数の得意先がいるときは代表得意先＋「他n」
+            data(r, sCust - 1) = party(rep.CustomerShortCode, If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName))
+            Dim sup = b.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True)
+            data(r, sSup - 1) = party(sup, b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault())
             data(r, sOrder - 1) = r
         Next
         For i As Integer = 1 To APPEND_ROWS
@@ -738,21 +741,20 @@ Public NotInheritable Class StocktakingWriter
             data(r, sOrder - 1) = r
         Next
 
-        xl.SetColumnsNumberFormat(S_SHELF, S_SHELF, nfString)
-        xl.SetColumnsNumberFormat(S_WH, S_STATUS, nfString)
-        xl.SetColumnsNumberFormat(sCustName, sSupName, nfString)
+        xl.SetColumnsNumberFormat(S_SHELF, S_STATUS, nfString)
+        xl.SetColumnsNumberFormat(sWh, sSup, nfString)
         If sStock > 0 Then xl.SetColumnNumberFormat(sStock, nfInteger)
 
         xl.SetValue(data)
 
-        ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。型式・在庫数・数量に余裕を持たせ、専用とステータスは同じ幅
-        Dim widths As New List(Of Double) From {6, 13, 5, 7, 7, 7, 36, 8, 8}
+        ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。数量は計算も書けるよう広く、専用とステータスは同じ幅
+        Dim widths As New List(Of Double) From {6, 13, 5, 36, 5.5, 5.5}
         If sStock > 0 Then widths.Add(11)
-        widths.AddRange({14, 16, 16, 16, 8})
+        widths.AddRange({30, 7, 16, 16, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
-        For Each c In {S_POS, S_NO, S_WH, S_MARK, S_STATUS, S_CUST, S_SUP}
+        For Each c In {S_NO, S_POS, S_MARK, S_STATUS, sWh}
             xl.SetColumnAlign(c, xlCenter)
         Next
         xl.SetRowAlign(1, xlLeft)                                 ' 見出し行は左寄せ
@@ -767,10 +769,15 @@ Public NotInheritable Class StocktakingWriter
                 all.Font.Name = "ＭＳ ゴシック"
                 all.Font.Size = 12
                 all.Borders.LineStyle = xlContinuous
-                ' 明細行は手書きできる高さ。見出し行は縮小しない
+                ' 明細行は「○個入り×何箱」の計算も書ける高さ。見出し行は縮小しない
                 Dim body = sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols))
-                body.RowHeight = 36
+                body.RowHeight = 54
                 body.ShrinkToFit = True
+                body.VerticalAlignment = xlCenter
+                ' 得意先・仕入先は「短縮CD（改行）略称」になるので折り返す（折り返しと縮小は両立しないため縮小は外す）
+                Dim names = sh.Range(sh.Cells(2, sCust), sh.Cells(lastRow, sSup))
+                names.ShrinkToFit = False
+                names.WrapText = True
                 sh.Rows(1).RowHeight = 26
 
                 With sh.PageSetup

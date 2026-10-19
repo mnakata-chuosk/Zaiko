@@ -29,6 +29,7 @@ Partial Class FrmMain
         Me.GbxStocktaking = New System.Windows.Forms.GroupBox()
         Me.ChkPrintStock = New System.Windows.Forms.CheckBox()
         Me.ChkBreakdown = New System.Windows.Forms.CheckBox()
+        Me.ChkShelfCodes = New System.Windows.Forms.CheckBox()
         Me.BtnStocktaking = New System.Windows.Forms.Button()
         Me.LblShelfSlots = New System.Windows.Forms.Label()
         Me.CboShelfSlots = New System.Windows.Forms.ComboBox()
@@ -80,12 +81,13 @@ Partial Class FrmMain
         '
         Me.GbxStocktaking.Controls.Add(Me.CboShelfSlots)
         Me.GbxStocktaking.Controls.Add(Me.LblShelfSlots)
+        Me.GbxStocktaking.Controls.Add(Me.ChkShelfCodes)
         Me.GbxStocktaking.Controls.Add(Me.ChkBreakdown)
         Me.GbxStocktaking.Controls.Add(Me.ChkPrintStock)
         Me.GbxStocktaking.Controls.Add(Me.BtnStocktaking)
         Me.GbxStocktaking.Location = New System.Drawing.Point(16, 116)
         Me.GbxStocktaking.Name = "GbxStocktaking"
-        Me.GbxStocktaking.Size = New System.Drawing.Size(328, 128)
+        Me.GbxStocktaking.Size = New System.Drawing.Size(328, 156)
         Me.GbxStocktaking.TabIndex = 4
         Me.GbxStocktaking.TabStop = False
         Me.GbxStocktaking.Text = "棚卸表"
@@ -110,12 +112,22 @@ Partial Class FrmMain
         Me.ChkBreakdown.Text = "得意先内訳を表示"
         Me.ChkBreakdown.UseVisualStyleBackColor = True
         '
+        'ChkShelfCodes
+        '
+        Me.ChkShelfCodes.AutoSize = True
+        Me.ChkShelfCodes.Location = New System.Drawing.Point(16, 122)
+        Me.ChkShelfCodes.Name = "ChkShelfCodes"
+        Me.ChkShelfCodes.Size = New System.Drawing.Size(151, 24)
+        Me.ChkShelfCodes.TabIndex = 5
+        Me.ChkShelfCodes.Text = "棚番別にコードを表示"
+        Me.ChkShelfCodes.UseVisualStyleBackColor = True
+        '
         'BtnStocktaking
         '
-        Me.BtnStocktaking.Location = New System.Drawing.Point(216, 82)
+        Me.BtnStocktaking.Location = New System.Drawing.Point(216, 110)
         Me.BtnStocktaking.Name = "BtnStocktaking"
         Me.BtnStocktaking.Size = New System.Drawing.Size(96, 36)
-        Me.BtnStocktaking.TabIndex = 5
+        Me.BtnStocktaking.TabIndex = 6
         Me.BtnStocktaking.Text = "出力"
         Me.BtnStocktaking.UseVisualStyleBackColor = True
         '
@@ -141,7 +153,7 @@ Partial Class FrmMain
         '
         Me.GbxShelf.Controls.Add(Me.LblShelfGuide)
         Me.GbxShelf.Controls.Add(Me.BtnShelf)
-        Me.GbxShelf.Location = New System.Drawing.Point(16, 252)
+        Me.GbxShelf.Location = New System.Drawing.Point(16, 280)
         Me.GbxShelf.Name = "GbxShelf"
         Me.GbxShelf.Size = New System.Drawing.Size(328, 68)
         Me.GbxShelf.TabIndex = 5
@@ -170,7 +182,7 @@ Partial Class FrmMain
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(96.0!, 96.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi
-        Me.ClientSize = New System.Drawing.Size(360, 334)
+        Me.ClientSize = New System.Drawing.Size(360, 362)
         Me.Controls.Add(Me.GbxShelf)
         Me.Controls.Add(Me.GbxStocktaking)
         Me.Controls.Add(Me.CboOffice)
@@ -200,6 +212,7 @@ Partial Class FrmMain
     Friend WithEvents GbxStocktaking As GroupBox
     Friend WithEvents ChkPrintStock As CheckBox
     Friend WithEvents ChkBreakdown As CheckBox
+    Friend WithEvents ChkShelfCodes As CheckBox
     Friend WithEvents BtnStocktaking As Button
     Friend WithEvents LblShelfSlots As Label
     Friend WithEvents CboShelfSlots As ComboBox

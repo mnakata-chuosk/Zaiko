@@ -18,8 +18,10 @@ Public Class StocktakingOptions
     Public Property ShelfSlots As Integer = DEFAULT_SHELF_SLOTS
     ''' <summary>得意先別の内訳行を出すか（旧アプリの「重複明細表示」）</summary>
     Public Property ShowBreakdown As Boolean
-    ''' <summary>印刷用シートに帳簿在庫数の列を出すか</summary>
+    ''' <summary>印刷用シート（型式別・棚番別）に帳簿在庫数の列を出すか</summary>
     Public Property ShowStockOnPrintSheet As Boolean
+    ''' <summary>棚番別シートの得意先・仕入先に短縮CDを出すか（出さないときは略称だけ）</summary>
+    Public Property ShowCodesOnShelfSheet As Boolean
     ''' <summary>出力日時（在庫の基準時点として表示）</summary>
     Public Property OutputAt As DateTime
 End Class
