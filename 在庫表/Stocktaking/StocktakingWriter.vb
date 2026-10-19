@@ -789,21 +789,14 @@ Public NotInheritable Class StocktakingWriter
                 all.Font.Name = "ＭＳ ゴシック"
                 all.Font.Size = 12
                 all.Borders.LineStyle = xlContinuous
-                ' 明細行は「○個入り×何箱」の計算も書ける高さで、印刷1ページに ROWS_PER_PAGE 行入るようにする。見出し行は縮小しない
-                ' （横1ページに収まる印刷倍率を列幅から求めて直接指定し、その倍率でちょうど11行入る高さにする。行高は 0.75pt 単位）
-                ' 倍率を Excel の「横1ページに合わせる」に任せると実際の倍率が計算より小さくなり、下に余白が残るため
+                ' 明細行は「○個入り×何箱」の計算も書ける高さで、印刷1ページにちょうど ROWS_PER_PAGE 行。見出し行は縮小しない
                 Const ROWS_PER_PAGE As Integer = 11
                 Const HEADER_HEIGHT As Double = 26
                 Const PAGE_WIDTH As Double = 842 - 6 - 6        ' A4横 − 左右余白（pt）
-                Const PAGE_HEIGHT As Double = 595 - 24 - 6      ' A4横 − 上下余白（pt）
-                Dim totalWidth As Double = 0
-                For c As Integer = 1 To sOrder - 1
-                    totalWidth += CDbl(sh.Columns(c).Width)
-                Next
-                zoomPercent = CInt(Math.Min(100, Math.Floor(PAGE_WIDTH / totalWidth * 100) - 1))   ' 1% はみ出し防止のゆとり
-                Dim rowHeight As Double = Math.Floor((PAGE_HEIGHT / (zoomPercent / 100.0) - HEADER_HEIGHT) / ROWS_PER_PAGE / 0.75) * 0.75 - 0.75
+                ' Excel の実際の印刷寸法は列幅・行高の値より1割ほど小さい（実測 約0.9）。計算だけで合わせると左右・下に余白が残るので、
+                ' 倍率は大きめから始めて横にはみ出す間は下げ、行高は改ページ位置を見て決める（どちらも出力する PC のプリンターで判定）
+                Const PRINT_RATIO As Double = 0.91
                 Dim body = sh.Range(sh.Cells(2, 1), sh.Cells(lastRow, sCols))
-                body.RowHeight = rowHeight
                 body.ShrinkToFit = True
                 body.VerticalAlignment = xlCenter
                 ' 得意先・仕入先は「短縮CD（改行）略称」になるので折り返す（折り返しと縮小は両立しないため縮小は外す）
@@ -812,6 +805,11 @@ Public NotInheritable Class StocktakingWriter
                 names.WrapText = True
                 sh.Rows(1).RowHeight = HEADER_HEIGHT
 
+                Dim totalWidth As Double = 0
+                For c As Integer = 1 To sOrder - 1
+                    totalWidth += CDbl(sh.Columns(c).Width)
+                Next
+                zoomPercent = CInt(Math.Min(100, Math.Floor(PAGE_WIDTH / (totalWidth * PRINT_RATIO) * 100)))
                 With sh.PageSetup
                     .Orientation = xlLandscape
                     .PaperSize = xlPaperA4
@@ -829,15 +827,33 @@ Public NotInheritable Class StocktakingWriter
                     .RightHeader = "ページ：&P/&N"
                 End With
 
-                ' 実際の印刷寸法は計算より少し小さく、計算した高さだと1ページに12行入ってしまうことがあるため、
-                ' 改ページ位置を見ながら1ページちょうど ROWS_PER_PAGE 行になるまで少しずつ高くする（下の余白を残さない）
-                For i As Integer = 1 To 20
-                    If sh.HPageBreaks.Count = 0 Then Exit For
-                    Dim perPage As Integer = CInt(sh.HPageBreaks(1).Location.Row) - 2   ' 見出し1行を除く
-                    If perPage <= ROWS_PER_PAGE Then Exit For
-                    rowHeight += 0.75
-                    body.RowHeight = rowHeight
-                Next
+                ' 改ページ位置は設定を変えても自動では計算し直されない（特に倍率）。総ページ数を読むと計算し直されるので、読む前に必ず呼ぶ
+                Dim repaginate = Sub()
+                                     Dim pages = sh.PageSetup.Pages.Count
+                                 End Sub
+
+                ' 横1ページに収まるまで倍率を下げる
+                repaginate()
+                Do While sh.VPageBreaks.Count > 0 AndAlso zoomPercent > 30
+                    zoomPercent -= 1
+                    sh.PageSetup.Zoom = zoomPercent
+                    repaginate()
+                Loop
+
+                ' 1ページに ROWS_PER_PAGE 行以上入る一番高い行高を、改ページ位置で二分探索（行高は 0.75pt 単位）
+                Dim fits = Function(steps As Integer) As Boolean
+                               body.RowHeight = steps * 0.75
+                               repaginate()
+                               If sh.HPageBreaks.Count = 0 Then Return True
+                               Return CInt(sh.HPageBreaks(1).Location.Row) - 2 >= ROWS_PER_PAGE   ' 見出し1行を除く
+                           End Function
+                Dim lo As Integer = 40      ' 30pt
+                Dim hi As Integer = 120     ' 90pt
+                Do While lo < hi
+                    Dim mid As Integer = (lo + hi + 1) \ 2
+                    If fits(mid) Then lo = mid Else hi = mid - 1
+                Loop
+                body.RowHeight = lo * 0.75
             End Sub)
     End Sub
 
