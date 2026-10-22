@@ -28,8 +28,8 @@
     <TargetCulture>ja</TargetCulture>
     <ProductName>在庫表</ProductName>
     <PublisherName>中央精工</PublisherName>
-    <ApplicationRevision>4</ApplicationRevision>
-    <ApplicationVersion>1.1.1.%2a</ApplicationVersion>
+    <ApplicationRevision>7</ApplicationRevision>
+    <ApplicationVersion>1.1.2.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <CreateDesktopShortcut>true</CreateDesktopShortcut>
     <PublishWizardCompleted>true</PublishWizardCompleted>
