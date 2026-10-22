@@ -814,6 +814,11 @@ Public NotInheritable Class StocktakingWriter
                 ' 型式は現場で見つけやすいよう大きく（長い型式は縮小表示で収める）
                 sh.Range(sh.Cells(2, S_NAME), sh.Cells(lastRow, S_NAME)).Font.Size = 20
                 If sStock > 0 Then sh.Range(sh.Cells(2, sStock), sh.Cells(lastRow, sStock)).Font.Size = 16
+                ' 棚番は大きく・上寄せ
+                With sh.Range(sh.Cells(2, S_SHELF), sh.Cells(lastRow, S_SHELF))
+                    .Font.Size = 18
+                    .VerticalAlignment = xlTop
+                End With
                 sh.Rows(1).RowHeight = HEADER_HEIGHT
 
                 Dim totalWidth As Double = 0
