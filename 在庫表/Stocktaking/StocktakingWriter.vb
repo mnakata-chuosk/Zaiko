@@ -673,7 +673,7 @@ Public NotInheritable Class StocktakingWriter
     ' ============================================================
     ''' <summary>
     ''' 棚番1つにつき1行（棚番 × 集計行）。複数の棚にある型式は棚の数だけ行が出る。
-    ''' 列は No → 棚番 → 棚数 → 型式 → 専用 → ステータス → (在庫数) → 数量 → 倉庫 → 得意先 → 仕入先。
+    ''' 列は No → 棚数 → 型式 → 専用 → ステータス → (在庫数) → 棚番 → 数量 → 倉庫 → 得意先 → 仕入先。
     ''' 棚数はその集計行に登録されている棚番の数（他の棚にもあるかが分かるように）。
     ''' 得意先・仕入先は略称。コードを表示する設定なら「短縮CD（改行）略称」の1セル2行。
     ''' 横向き印刷・MS ゴシック 12pt（型式の空白位置を揃えるため等幅）。明細行は「○個入り×何箱」の計算も書ける高さ。
@@ -683,13 +683,13 @@ Public NotInheritable Class StocktakingWriter
     Private Sub WriteShelfSheet(xl As ExcelObject, items As List(Of StocktakingItem), opt As StocktakingOptions)
         Const MAX_POSITION As Integer = 5                         ' 棚番5まで
         Const S_NO As Integer = 1
-        Const S_SHELF As Integer = 2
-        Const S_COUNT As Integer = 3                              ' 棚数（登録されている棚番の数。棚番5より後ろも数える）
-        Const S_NAME As Integer = 4
-        Const S_MARK As Integer = 5
-        Const S_STATUS As Integer = 6
-        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 7, 0)
-        Dim sQty As Integer = If(opt.ShowStockOnPrintSheet, 8, 7)
+        Const S_COUNT As Integer = 2                              ' 棚数（登録されている棚番の数。棚番5より後ろも数える）
+        Const S_NAME As Integer = 3
+        Const S_MARK As Integer = 4
+        Const S_STATUS As Integer = 5
+        Dim sStock As Integer = If(opt.ShowStockOnPrintSheet, 6, 0)
+        Dim sShelf As Integer = If(opt.ShowStockOnPrintSheet, 7, 6)   ' 棚番は在庫数と数量の間
+        Dim sQty As Integer = sShelf + 1
         Dim sWh As Integer = sQty + 1                             ' 倉庫・得意先・仕入先は一番右
         Dim sCust As Integer = sQty + 2
         Dim sSup As Integer = sQty + 3
@@ -733,9 +733,9 @@ Public NotInheritable Class StocktakingWriter
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
         Dim data(lastRow - 1, sCols - 1) As Object
-        Dim headers As New List(Of String) From {"No", "棚番", "棚数", ListHeaders.MODEL, "専用", "ステ"}   ' 見出しは縮小しないので細い列に収まる「ステ」
+        Dim headers As New List(Of String) From {"No", "棚数", ListHeaders.MODEL, "専用", "ステ"}   ' 見出しは縮小しないので細い列に収まる「ステ」
         If sStock > 0 Then headers.Add("在庫数")
-        headers.AddRange({"数量", "倉庫", "得意先", "仕入先", ListHeaders.ORDER})
+        headers.AddRange({"棚番", "数量", "倉庫", "得意先", "仕入先", ListHeaders.ORDER})
         For c As Integer = 0 To sCols - 1
             data(0, c) = headers(c)
         Next
@@ -748,7 +748,7 @@ Public NotInheritable Class StocktakingWriter
             Dim others As Integer = rows.Select(Function(x) x.CustomerCode).Distinct().Count() - 1
             Dim r As Integer = i + 1
             data(r, S_NO - 1) = b.No
-            data(r, S_SHELF - 1) = e.Item1
+            data(r, sShelf - 1) = e.Item1
             data(r, S_COUNT - 1) = If(b.Shelves.Count > 0, CObj(b.Shelves.Count), Nothing)
             data(r, S_NAME - 1) = e.Item2.Model
             data(r, S_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
@@ -767,7 +767,8 @@ Public NotInheritable Class StocktakingWriter
             data(r, sOrder - 1) = r
         Next
 
-        xl.SetColumnsNumberFormat(S_SHELF, S_STATUS, nfString)
+        xl.SetColumnsNumberFormat(S_NAME, S_STATUS, nfString)
+        xl.SetColumnNumberFormat(sShelf, nfString)
         xl.SetColumnsNumberFormat(sWh, sSup, nfString)
         If sStock > 0 Then xl.SetColumnNumberFormat(sStock, nfInteger)
 
@@ -775,9 +776,9 @@ Public NotInheritable Class StocktakingWriter
 
         ' 文字を大きめ（MS ゴシック 12pt）にするので幅も広めに。数量は計算も書けるよう広く、専用とステータスは同じ幅
         ' 型式 45（大きい文字で見やすく）、数量 30、棚数 4、専用・ステ 5、得意先・仕入先 12
-        Dim widths As New List(Of Double) From {6, 13, 4, 45, 5, 5}
+        Dim widths As New List(Of Double) From {6, 4, 45, 5, 5}
         If sStock > 0 Then widths.Add(11)
-        widths.AddRange({30, 7, 12, 12, 8})
+        widths.AddRange({13, 30, 7, 12, 12, 8})
         xl.SetColumnsWidth(widths.ToArray())
         xl.SetColumnHidden(sOrder)
 
@@ -815,7 +816,7 @@ Public NotInheritable Class StocktakingWriter
                 sh.Range(sh.Cells(2, S_NAME), sh.Cells(lastRow, S_NAME)).Font.Size = 20
                 If sStock > 0 Then sh.Range(sh.Cells(2, sStock), sh.Cells(lastRow, sStock)).Font.Size = 16
                 ' 棚番は大きく・上寄せ
-                With sh.Range(sh.Cells(2, S_SHELF), sh.Cells(lastRow, S_SHELF))
+                With sh.Range(sh.Cells(2, sShelf), sh.Cells(lastRow, sShelf))
                     .Font.Size = 18
                     .VerticalAlignment = xlTop
                 End With
