@@ -702,26 +702,33 @@ Public NotInheritable Class StocktakingWriter
                         Return If(String.IsNullOrEmpty(name), code, code & vbLf & name)
                     End Function
 
-        ' 棚番 → 仕入先（短縮CD）→ 型式 の順（棚番なしは最後）
-        Dim entries As New List(Of Tuple(Of String, Integer, StocktakingItem, StockBlock))
+        ' 1行＝棚番 × 集計行 × 倉庫 × ステータス。同じ棚・同じ型式でも倉庫やステータスが違えば別の行にし、在庫数もそれぞれ出す
+        ' 棚番 → 仕入先（短縮CD）→ 型式 → 倉庫 → ステータス の順（棚番なしは最後）
+        Dim entries As New List(Of Tuple(Of String, StocktakingItem, StockBlock, List(Of StockRow)))
         For Each item In items
             For Each b In item.Blocks.Where(Function(x) x.HasPrintRows)
-                Dim positions = b.Shelves.Where(Function(kv) kv.Key <= MAX_POSITION).ToList()
-                If positions.Count = 0 Then
-                    entries.Add(Tuple.Create("", 0, item, b))
-                Else
-                    For Each kv In positions
-                        entries.Add(Tuple.Create(kv.Value, kv.Key, item, b))
+                Dim groups = b.Rows.GroupBy(Function(x) x.Warehouse & vbTab & x.StatusCode) _
+                                   .Select(Function(g) g.ToList()) _
+                                   .OrderBy(Function(g) g(0).Warehouse, StringComparer.Ordinal) _
+                                   .ThenBy(Function(g) g(0).StatusCode, StringComparer.Ordinal) _
+                                   .ToList()
+                Dim shelves = b.Shelves.Where(Function(kv) kv.Key <= MAX_POSITION).Select(Function(kv) kv.Value).ToList()
+                If shelves.Count = 0 Then shelves.Add("")
+                For Each shelf In shelves
+                    For Each g In groups
+                        entries.Add(Tuple.Create(shelf, item, b, g))
                     Next
-                End If
+                Next
             Next
         Next
+        Dim supplierOf = Function(rows As List(Of StockRow)) StockBlock.CommonValueOf(rows, Function(x) x.SupplierShortCode, rows(0).SupplierShortCode)
         Dim ordered = entries.OrderBy(Function(e) If(e.Item1 = "", 1, 0)) _
                              .ThenBy(Function(e) e.Item1, StringComparer.Ordinal) _
-                             .ThenBy(Function(e) e.Item4.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True), StringComparer.Ordinal) _
-                             .ThenBy(Function(e) e.Item3.Model, StringComparer.Ordinal) _
-                             .ThenBy(Function(e) e.Item4.No) _
-                             .ThenBy(Function(e) e.Item2) _
+                             .ThenBy(Function(e) supplierOf(e.Item4), StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item2.Model, StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item3.No) _
+                             .ThenBy(Function(e) e.Item4(0).Warehouse, StringComparer.Ordinal) _
+                             .ThenBy(Function(e) e.Item4(0).StatusCode, StringComparer.Ordinal) _
                              .ToList()
 
         Dim lastRow As Integer = 1 + ordered.Count + APPEND_ROWS
@@ -735,22 +742,23 @@ Public NotInheritable Class StocktakingWriter
 
         For i As Integer = 0 To ordered.Count - 1
             Dim e = ordered(i)
-            Dim b = e.Item4
-            Dim rep = b.Representative
-            Dim others As Integer = b.CustomerCount - 1
+            Dim b = e.Item3
+            Dim rows = e.Item4                                    ' この行の在庫（同じ倉庫・同じステータス）
+            Dim rep = rows(0)                                     ' 代表得意先（行は得意先の短縮CD順）
+            Dim others As Integer = rows.Select(Function(x) x.CustomerCode).Distinct().Count() - 1
             Dim r As Integer = i + 1
             data(r, S_NO - 1) = b.No
             data(r, S_SHELF - 1) = e.Item1
             data(r, S_COUNT - 1) = If(b.Shelves.Count > 0, CObj(b.Shelves.Count), Nothing)
-            data(r, S_NAME - 1) = e.Item3.Model
+            data(r, S_NAME - 1) = e.Item2.Model
             data(r, S_MARK - 1) = If(b.IsDedicated, ListHeaders.MARK_VALUE, Nothing)
-            data(r, S_STATUS - 1) = b.CommonValue(Function(x) StatusLabel(x))
-            If sStock > 0 Then data(r, sStock - 1) = CDbl(b.Quantity)
-            data(r, sWh - 1) = b.CommonValue(Function(x) x.Warehouse)    ' 倉庫区分は設定に関係なく出す
+            data(r, S_STATUS - 1) = StatusLabel(rep)
+            If sStock > 0 Then data(r, sStock - 1) = CDbl(rows.Sum(Function(x) x.Quantity))
+            data(r, sWh - 1) = rep.Warehouse                      ' 倉庫区分は設定に関係なく出す
             ' 共用棚に複数の得意先がいるときは代表得意先＋「他n」
             data(r, sCust - 1) = party(rep.CustomerShortCode, If(others > 0, $"{rep.CustomerName} 他{others}", rep.CustomerName))
-            Dim sup = b.CommonValue(Function(x) x.SupplierShortCode, useRepresentative:=True)
-            data(r, sSup - 1) = party(sup, b.Rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault())
+            Dim sup = supplierOf(rows)
+            data(r, sSup - 1) = party(sup, rows.Where(Function(x) x.SupplierShortCode = sup).Select(Function(x) x.SupplierName).FirstOrDefault())
             data(r, sOrder - 1) = r
         Next
         For i As Integer = 1 To APPEND_ROWS
